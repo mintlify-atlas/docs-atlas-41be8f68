@@ -1,0 +1,72 @@
+---
+title: "What is Spin? WebAssembly serverless framework"
+description: "Spin is an open source framework and CLI for building, distributing, and running serverless apps with WebAssembly components and multi-language SDKs."
+keywords: ["spin", "webassembly", "serverless", "wasm", "framework", "microservices"]
+---
+
+Spin is an open source framework for building and running fast, secure, and composable cloud microservices with WebAssembly. It aims to be the easiest way to get started with WebAssembly microservices, and takes advantage of the latest developments in the [WebAssembly component model](https://github.com/WebAssembly/component-model) and the [Wasmtime](https://wasmtime.dev/) runtime.
+
+<CardGroup cols={2}>
+  <Card title="Install Spin" icon="download" href="/install">
+    Get the Spin CLI running on Linux, macOS, or Windows WSL.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build and run your first Spin app in under five minutes.
+  </Card>
+</CardGroup>
+
+## How Spin works
+
+A Spin application is made up of one or more **components** — WebAssembly modules that handle events from a **trigger**. Spin loads your components, wires them to their triggers, and manages the runtime lifecycle for you.
+
+- **Triggers** define what event starts a component. Spin ships with HTTP and Redis triggers built in.
+- **Components** contain your application logic compiled to WebAssembly. They start instantly, run in a sandboxed environment, and stop when the request is done.
+- **Capabilities** (called factors internally) are opt-in APIs your component can use: outbound HTTP, key-value storage, SQLite, PostgreSQL, MySQL, Redis pub/sub, and serverless AI inference.
+
+The application manifest (`spin.toml`) declares every component, its trigger route or channel, its Wasm source file, and the build command Spin uses to compile it.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="HTTP trigger" icon="globe" href="/building/triggers">
+    Route HTTP requests to components by path pattern. Spin handles TLS termination and request parsing automatically.
+  </Card>
+  <Card title="Redis trigger" icon="database" href="/building/triggers">
+    Subscribe components to Redis pub/sub channels and process messages as they arrive, with no polling loop required.
+  </Card>
+  <Card title="Multi-language SDKs" icon="code" href="/sdks/rust">
+    Write components in Rust, JavaScript, TypeScript, Python, or Go using official SDKs maintained by the Spin framework team.
+  </Card>
+  <Card title="Plugin system" icon="puzzle-piece" href="/extending/plugins">
+    Extend the Spin CLI with community and first-party plugins installed from the plugin registry with `spin plugins install`.
+  </Card>
+  <Card title="Storage APIs" icon="hard-drive" href="/data/key-value-store">
+    Persist data with built-in key-value stores, SQLite, PostgreSQL, MySQL, and Redis without managing connection pools.
+  </Card>
+  <Card title="Serverless AI" icon="brain" href="/extending/serverless-ai">
+    Run LLM inference and compute embeddings from within your component using the serverless AI API.
+  </Card>
+</CardGroup>
+
+## Language support
+
+WebAssembly is language-agnostic. You write your component in a supported source language, compile it to Wasm, and Spin runs it. The Spin framework team maintains SDKs for four languages:
+
+| Language | SDK | Notes |
+|---|---|---|
+| Rust | [crates.io/crates/spin-sdk](https://crates.io/crates/spin-sdk) | Full feature coverage; primary SDK |
+| JavaScript & TypeScript | [github.com/spinframework/spin-js-sdk](https://github.com/spinframework/spin-js-sdk) | Supports both HTTP and Redis triggers |
+| Python | [github.com/spinframework/spin-python-sdk](https://github.com/spinframework/spin-python-sdk) | Supports HTTP, Redis, and outbound HTTP |
+| Go | [pkg.go.dev/github.com/fermyon/spin/sdk/go/v2](https://pkg.go.dev/github.com/fermyon/spin/sdk/go/v2) | Uses TinyGo to target `wasip1` |
+
+Community-maintained SDKs also exist for Zig and Moonbit.
+
+<Note>
+  The Spin framework team supports the JavaScript, Rust, Go, and Python SDKs. Other language integrations are supported by their authors.
+</Note>
+
+## License and community
+
+Spin is licensed under the **Apache-2.0** license (with LLVM exception). Source code is available at [github.com/spinframework/spin](https://github.com/spinframework/spin).
+
+Join the community in the [Spin CNCF Slack channel](https://cloud-native.slack.com/archives/C089NJ9G1V0) to ask questions, get help, and share what you are building.

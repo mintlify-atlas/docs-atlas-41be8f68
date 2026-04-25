@@ -1,0 +1,101 @@
+---
+title: "Deploy to Fermyon Cloud from Spin"
+description: "Deploy Spin applications to Fermyon Cloud using the spin cloud plugin. Get a public HTTPS URL in seconds with managed scaling and storage."
+---
+
+[Fermyon Cloud](https://cloud.fermyon.com) is a managed hosting platform built specifically for Spin applications. You push your app and receive a public HTTPS URL within seconds, with no infrastructure to configure. Fermyon Cloud handles scaling, TLS, and managed data services so you can focus on application logic.
+
+<Note>
+`spin cloud` is a separate plugin, not part of core Spin. You need to install it before you can deploy.
+</Note>
+
+## Install the spin cloud plugin
+
+```bash
+spin plugins install --url https://github.com/fermyon/spin-cloud-plugin/releases/latest/download/cloud.json
+```
+
+Confirm the installation:
+
+```bash
+spin cloud --version
+```
+
+## Authenticate with Fermyon Cloud
+
+```bash
+spin cloud login
+```
+
+This opens a browser window to complete OAuth authentication with your Fermyon Cloud account. Your credentials are stored locally and reused for subsequent commands.
+
+## Deploy an application
+
+From your application directory, run:
+
+```bash
+spin cloud deploy
+```
+
+After a successful deploy, Spin prints a public URL:
+
+```
+Deployed myapp version 1.0.0+ab12cd34
+Available Routes:
+  myapp: https://myapp-ab12cd34.fermyon.app (wildcard)
+```
+
+Your application is immediately reachable at that URL over HTTPS with a valid certificate.
+
+## Platform features
+
+<Columns cols={2}>
+  <Card title="Managed key-value store" icon="database">
+    Built-in KV storage backed by Fermyon Cloud infrastructure. No external Redis or DynamoDB required.
+  </Card>
+  <Card title="Managed SQLite" icon="table">
+    Persistent relational storage available to your components through the Spin SQLite API.
+  </Card>
+  <Card title="HTTPS by default" icon="lock">
+    Every deployment gets a TLS certificate automatically. Custom domains are also supported.
+  </Card>
+  <Card title="Custom domains" icon="globe">
+    Map your own domain to a Fermyon Cloud deployment through the cloud dashboard.
+  </Card>
+</Columns>
+
+## Typical deploy workflow
+
+<Steps>
+  <Step title="Install the plugin (once)">
+    ```bash
+    spin plugins install --url https://github.com/fermyon/spin-cloud-plugin/releases/latest/download/cloud.json
+    ```
+  </Step>
+  <Step title="Log in to Fermyon Cloud">
+    ```bash
+    spin cloud login
+    ```
+  </Step>
+  <Step title="Build your application">
+    ```bash
+    spin build
+    ```
+  </Step>
+  <Step title="Deploy">
+    ```bash
+    spin cloud deploy
+    ```
+
+    The CLI uploads your application and returns a public URL when the deploy is complete.
+  </Step>
+  <Step title="Test the live URL">
+    ```bash
+    curl https://myapp-ab12cd34.fermyon.app
+    ```
+  </Step>
+</Steps>
+
+## Further reading
+
+For full Fermyon Cloud documentation — including environment variables, secrets management, custom domains, and the Fermyon Cloud dashboard — visit [developer.fermyon.com](https://developer.fermyon.com).

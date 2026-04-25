@@ -1,0 +1,93 @@
+---
+title: "spin registry — push, pull, and login to OCI registries"
+description: "spin registry pushes and pulls Spin apps as OCI artifacts. Authenticate with spin registry login. Works with GHCR, Docker Hub, and any OCI registry."
+---
+
+`spin registry` manages distributing Spin applications through OCI-compatible registries. Spin apps are stored as OCI artifacts — not container images — and can be pushed to any registry that supports the OCI distribution spec, including GitHub Container Registry, Docker Hub, and Azure Container Registry.
+
+## Subcommands
+
+### spin registry login
+
+Authenticate with an OCI registry. Credentials are stored in your system's keychain or credential store.
+
+```bash
+spin registry login ghcr.io
+```
+
+To authenticate non-interactively (useful in CI):
+
+```bash
+echo "$REGISTRY_TOKEN" | spin registry login ghcr.io --username myuser --password-stdin
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|---|---|---|
+| `--username <USER>` | `-u` | Registry username |
+| `--password <PASS>` | `-p` | Registry password or token |
+| `--password-stdin` | | Read password from stdin |
+
+### spin registry push
+
+Push a Spin application to a registry as an OCI artifact.
+
+```bash
+spin registry push ghcr.io/myorg/myapp:v1.0.0
+```
+
+By default, Spin composes component dependencies before pushing, which produces an artifact that is compatible with the widest range of Spin runtime hosts. You can opt out if you want to optimize for shared dependency bandwidth.
+
+**Flags:**
+
+| Flag | Short | Description |
+|---|---|---|
+| `--from <FILE>` | `-f` | Path to `spin.toml` (default: current directory) |
+| `--insecure` | `-k` | Ignore TLS certificate errors |
+| `--build` | | Run `spin build` before pushing |
+| `--profile <PROFILE>` | | Build profile to push |
+| `--no-compose` | | Skip composing component dependencies before push |
+
+### spin registry pull
+
+Pull a Spin application from a registry to the local cache.
+
+```bash
+spin registry pull ghcr.io/myorg/myapp:v1.0.0
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|---|---|---|
+| `--insecure` | `-k` | Ignore TLS certificate errors |
+
+## Full publish workflow
+
+<Steps>
+  <Step title="Log in to your registry">
+    ```bash
+    spin registry login ghcr.io
+    ```
+  </Step>
+  <Step title="Build your application">
+    ```bash
+    spin build
+    ```
+  </Step>
+  <Step title="Push to the registry">
+    ```bash
+    spin registry push ghcr.io/myorg/myapp:v1.0.0
+    ```
+  </Step>
+  <Step title="Run from the registry">
+    ```bash
+    spin up -f ghcr.io/myorg/myapp:v1.0.0
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Use the `--build` flag on `spin registry push` to build and push in a single step: `spin registry push --build ghcr.io/myorg/myapp:latest`
+</Tip>

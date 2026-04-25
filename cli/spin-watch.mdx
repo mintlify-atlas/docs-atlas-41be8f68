@@ -1,0 +1,73 @@
+---
+title: "spin watch — hot-reload Spin apps during development"
+description: "spin watch monitors source files for changes, rebuilds Spin components, and restarts the app automatically. Ideal for rapid local development feedback loops."
+---
+
+`spin watch` combines `spin build` and `spin up` into a single development loop. It watches your source files for changes, rebuilds the affected components, and restarts the running application — giving you a fast feedback cycle without manually stopping and restarting.
+
+## Usage
+
+```bash
+spin watch [OPTIONS] [-- SPIN_UP_ARGS]
+```
+
+## Flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--from <FILE>` | `-f` | Path to `spin.toml` (default: current directory) |
+| `--skip-build` | | Only restart when `.wasm` artifacts change, skip the build step |
+| `--clear` | `-c` | Clear the terminal screen before each restart |
+| `--debounce <MS>` | `-d` | Milliseconds to wait after a change before rebuilding (default: `100`) |
+| `--profile <PROFILE>` | | Build profile to use |
+
+Any flags after `--` are passed through to `spin up`.
+
+## Examples
+
+Start the watch loop in the current directory:
+
+```bash
+spin watch
+```
+
+Clear the screen on each rebuild:
+
+```bash
+spin watch --clear
+```
+
+Skip rebuilding — only restart when Wasm files change:
+
+```bash
+spin watch --skip-build
+```
+
+Pass `spin up` flags through:
+
+```bash
+spin watch -- --listen 0.0.0.0:8080
+```
+
+Increase the debounce delay to 500ms:
+
+```bash
+spin watch --debounce 500
+```
+
+## Configuring watched files
+
+`spin watch` uses the `watch` field in each component's build section to determine which files to monitor:
+
+```toml spin.toml
+[component.my-api.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "."
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+When any matched file changes, `spin watch` triggers a rebuild of that component, then restarts the application. If `watch` is not specified, `spin watch` falls back to watching all source files it can discover.
+
+<Tip>
+Use `--skip-build` when you have a separate build process running (e.g., `cargo watch`) and only want Spin to restart when the `.wasm` output changes.
+</Tip>

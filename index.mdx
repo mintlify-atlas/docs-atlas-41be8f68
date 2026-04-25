@@ -1,133 +1,90 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
-icon: 'star'
+title: "Spin: WebAssembly Serverless Framework"
+description: "Spin is an open source WebAssembly framework for building fast, secure serverless apps. Multi-language SDKs, built-in storage, and a simple CLI."
 ---
 
-## Setting up
+Spin is an open source framework and CLI for building, distributing, and running fast, secure serverless applications powered by WebAssembly. It leverages the WebAssembly component model and the Wasmtime runtime to give you instant startup times, strong sandboxing, and multi-language support — all from a single `spin` command.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Install Spin" icon="download" href="/install">
+    Install the Spin CLI on macOS, Linux, or Windows and get your environment ready.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build and run your first Spin application in under five minutes.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Application Structure" icon="folder-open" href="/building/spin-application-structure">
+    Understand the spin.toml manifest and how Spin apps are organized.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="CLI Reference" icon="terminal" href="/cli/spin-new">
+    Explore every Spin command, flag, and option in the full CLI reference.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Build with any language
 
-Everything you need to create world-class documentation.
+Spin supports multiple languages through official and community SDKs. Write your component in the language you know best and compile it to WebAssembly.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="Rust" icon="rust" href="/sdks/rust">
+    The primary SDK with full feature coverage and the richest type-safe API.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="JavaScript & TypeScript" icon="js" href="/sdks/javascript-typescript">
+    Build Spin components using familiar JS/TS patterns with the spin-js-sdk.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Python" icon="python" href="/sdks/python">
+    Write serverless handlers in Python with the spin-python-sdk.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Go" icon="golang" href="/sdks/go">
+    Use TinyGo to compile lightweight Spin components for high-throughput workloads.
   </Card>
-</Columns>
+</CardGroup>
 
-## Make your content agent ready
+## Key capabilities
 
-Make your docs work for humans and AI agents alike.
+<CardGroup cols={2}>
+  <Card title="Triggers" icon="bolt" href="/building/triggers">
+    React to HTTP requests or Redis messages with built-in trigger types.
+  </Card>
+  <Card title="Data & Storage" icon="database" href="/data/key-value-store">
+    Persist data with key-value stores, SQLite, PostgreSQL, MySQL, and Redis.
+  </Card>
+  <Card title="Plugins" icon="puzzle-piece" href="/extending/plugins">
+    Extend Spin with community and first-party plugins from the plugin registry.
+  </Card>
+  <Card title="Serverless AI" icon="brain" href="/extending/serverless-ai">
+    Run LLM inference and compute embeddings directly from your Spin components.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
-  </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
-  </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
-  </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
-  </Card>
-</Columns>
+## Getting started
 
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Install Spin">
+    Download and install the Spin CLI with a single command:
+    ```bash
+    curl -fsSL https://spinframework.dev/downloads/install.sh | bash
+    sudo mv ./spin /usr/local/bin/spin
+    ```
+  </Step>
+  <Step title="Create a new application">
+    Scaffold a new Spin app from a template:
+    ```bash
+    spin new --accept-defaults -t http-rust hello-spin
+    cd hello-spin
+    ```
+  </Step>
+  <Step title="Build and run">
+    Compile your component to WebAssembly and start the local server:
+    ```bash
+    spin build
+    spin up
+    ```
+  </Step>
+  <Step title="Test it">
+    Send a request to your running application:
+    ```bash
+    curl http://127.0.0.1:3000
+    # Hello World!
+    ```
+  </Step>
+</Steps>

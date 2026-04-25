@@ -1,0 +1,247 @@
+---
+title: "Spin Go SDK with TinyGo WebAssembly target"
+description: "Build Spin components with Go and TinyGo targeting wasm32-wasip2. Supports HTTP and Redis triggers, outbound HTTP, key-value store, and more."
+---
+
+The Spin Go SDK uses [TinyGo](https://tinygo.org/) to compile Go source to WebAssembly. The standard Go toolchain does not yet produce WASI-compatible output suitable for Spin, so TinyGo is required. The SDK module is [`github.com/spinframework/spin-go-sdk/v2`](https://pkg.go.dev/github.com/spinframework/spin-go-sdk/v2) and supports HTTP and Redis triggers, outbound HTTP, key-value storage, SQLite, MySQL, PostgreSQL, and outbound Redis.
+
+## Installation
+
+<Steps>
+  <Step title="Install TinyGo">
+    Download and install TinyGo from [tinygo.org/getting-started](https://tinygo.org/getting-started/install/). Verify the installation:
+
+    ```bash
+    tinygo version
+    ```
+  </Step>
+  <Step title="Create a new Spin application">
+    Use the `http-go` template to scaffold a project with the correct module path, `go.mod`, and `spin.toml`:
+
+    ```bash
+    spin new --accept-defaults -t http-go hello-go
+    ```
+  </Step>
+  <Step title="Fetch Go module dependencies">
+    ```bash
+    go mod download
+    ```
+  </Step>
+  <Step title="Build and run">
+    ```bash
+    spin build
+    spin up
+    ```
+
+    Spin calls `tinygo build -target=wasip1 -buildmode=c-shared -no-debug -o main.wasm .` and serves on `http://127.0.0.1:3000`.
+
+    <Note>
+      The build target is `wasip1` for TinyGo compatibility, even though the resulting component runs on the WASI Preview 2 runtime inside Spin. Do not change this flag.
+    </Note>
+  </Step>
+</Steps>
+
+## HTTP handler
+
+Register the HTTP handler inside `init()` using `spinhttp.Handle`. The callback signature matches the standard `net/http` `http.HandlerFunc`, so you can use the full `http.ResponseWriter` and `*http.Request` API.
+
+```go main.go
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	spinhttp "github.com/spinframework/spin-go-sdk/v2/http"
+)
+
+func init() {
+	spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintln(w, "Hello World!")
+	})
+}
+
+func main() {}
+```
+
+The matching `spin.toml` routes HTTP requests to the component:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "hello-go"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "hello-go"
+
+[component.hello-go]
+source = "main.wasm"
+allowed_outbound_hosts = []
+
+[component.hello-go.build]
+command = "tinygo build -target=wasip1 -buildmode=c-shared -no-debug -o main.wasm ."
+watch = ["**/*.go", "go.mod"]
+```
+
+## Redis subscriber
+
+Register the Redis message handler inside `init()` using `redis.Handle`. The callback receives the raw message payload as `[]byte`.
+
+```go main.go
+package main
+
+import (
+	"fmt"
+
+	"github.com/spinframework/spin-go-sdk/v2/redis"
+)
+
+func init() {
+	// redis.Handle() must be called in the init() function.
+	redis.Handle(func(payload []byte) error {
+		fmt.Println("Payload::::")
+		fmt.Println(string(payload))
+		return nil
+	})
+}
+
+func main() {}
+```
+
+Configure the Redis address and channel in `spin.toml`:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "hello-redis-go"
+version = "0.1.0"
+
+[application.trigger.redis]
+address = "redis://127.0.0.1:6379"
+
+[[trigger.redis]]
+channel = "messages"
+component = "hello-redis-go"
+
+[component.hello-redis-go]
+source = "main.wasm"
+allowed_outbound_hosts = []
+
+[component.hello-redis-go.build]
+command = "tinygo build -target=wasip1 -gc=leaking -buildmode=c-shared -no-debug -o main.wasm ."
+```
+
+## Outbound HTTP
+
+The Go SDK re-exports the standard `net/http` package through Spin's outbound HTTP interface. Use `http.Get`, `http.Post`, or `http.NewRequest` as normal. Spin enforces the `allowed_outbound_hosts` list.
+
+```go main.go
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+
+	spinhttp "github.com/spinframework/spin-go-sdk/v2/http"
+)
+
+func init() {
+	spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+		resp, err := http.Get("https://httpbin.org/get")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, "%s", body)
+	})
+}
+
+func main() {}
+```
+
+```toml spin.toml
+[component.hello-go]
+source = "main.wasm"
+allowed_outbound_hosts = ["https://httpbin.org"]
+```
+
+## Key-value store
+
+Import `github.com/spinframework/spin-go-sdk/v2/kv` and open a store by name. Use `Get`, `Set`, and `Delete` to manage entries.
+
+```go main.go
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	spinhttp "github.com/spinframework/spin-go-sdk/v2/http"
+	"github.com/spinframework/spin-go-sdk/v2/kv"
+)
+
+func init() {
+	spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+		store, err := kv.OpenStore("default")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer store.Close()
+
+		if err := store.Set("greeting", []byte("hello")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		val, err := store.Get("greeting")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "%s", val)
+	})
+}
+
+func main() {}
+```
+
+Grant access to the store in `spin.toml`:
+
+```toml spin.toml
+[component.hello-go]
+source = "main.wasm"
+key_value_stores = ["default"]
+```
+
+## Feature support
+
+| Feature | Supported |
+|---|---|
+| HTTP trigger | Yes |
+| Redis trigger | Yes |
+| Outbound HTTP | Yes |
+| Configuration variables | Yes |
+| Key-value storage | Yes |
+| SQLite storage | Yes |
+| MySQL | Yes |
+| PostgreSQL | Yes |
+| Outbound Redis | Yes |
+| Serverless AI | No |
+| Authoring custom triggers | No |
+
+<Note>
+  Serverless AI (the `llm` inferencing API) is not available in the Go SDK. Use the Rust, TypeScript, or Python SDK if your component needs on-device model inferencing.
+</Note>

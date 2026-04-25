@@ -1,0 +1,159 @@
+---
+title: "Spin Python SDK: serverless Wasm handlers"
+description: "Write Spin WebAssembly components in Python using the spin-python-sdk. Supports HTTP triggers, key-value store, outbound HTTP, and Serverless AI."
+---
+
+The Spin Python SDK lets you write Spin WebAssembly components in standard Python. The SDK is maintained by the Spin framework team and is available at [github.com/spinframework/spin-python-sdk](https://github.com/spinframework/spin-python-sdk). Under the hood, your Python source is compiled to a WebAssembly component using `componentize-py`, which bundles a Python interpreter into the `.wasm` artifact — no external runtime is needed at deploy time.
+
+## Installation
+
+<Steps>
+  <Step title="Install Spin and the Python template">
+    If you have not installed Spin yet, follow the [Spin install guide](https://spinframework.dev/install). Then add the Python HTTP template:
+
+    ```bash
+    spin templates install --git https://github.com/spinframework/spin-python-sdk --upgrade
+    ```
+  </Step>
+  <Step title="Create a new component">
+    Scaffold a new HTTP component using the `http-py` template:
+
+    ```bash
+    spin new --accept-defaults -t http-py hello-python
+    ```
+
+    This creates `app.py`, `spin.toml`, and `requirements.txt` in the `hello-python` directory.
+  </Step>
+  <Step title="Install Python dependencies">
+    ```bash
+    pip install -r requirements.txt
+    ```
+  </Step>
+  <Step title="Build and run">
+    ```bash
+    spin build
+    spin up
+    ```
+
+    `spin build` invokes `componentize-py` to produce a `.wasm` file from your Python source.
+  </Step>
+</Steps>
+
+## HTTP handler
+
+Define a class that extends `IncomingHandler` and implement `handle`. The method receives a `Request` and a `ResponseOutparam` that you use to write the response.
+
+```python app.py
+from spin_sdk.http import IncomingHandler, Request, Response
+
+
+class IncomingHandler(IncomingHandler):
+    def handle(self, request: Request) -> Response:
+        return Response(
+            200,
+            {"content-type": "text/plain"},
+            bytes("Hello from Python!", "utf-8"),
+        )
+```
+
+The `spin.toml` manifest routes HTTP requests to the component:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "hello-python"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "hello-python"
+
+[component.hello-python]
+source = "app.wasm"
+allowed_outbound_hosts = []
+
+[component.hello-python.build]
+command = "componentize-py -w spin-http componentize app -o app.wasm"
+watch = ["app.py", "requirements.txt"]
+```
+
+## Outbound HTTP
+
+Use `spin_sdk.http.send` to make outbound HTTP requests. Spin enforces the `allowed_outbound_hosts` allow-list declared in `spin.toml`.
+
+```python app.py
+from spin_sdk.http import IncomingHandler, Request, Response, send
+
+
+class IncomingHandler(IncomingHandler):
+    def handle(self, request: Request) -> Response:
+        upstream = send(
+            Request("GET", "https://httpbin.org/get", {}, None)
+        )
+        return Response(
+            200,
+            {"content-type": "application/json"},
+            upstream.body,
+        )
+```
+
+```toml spin.toml
+[component.hello-python]
+source = "app.wasm"
+allowed_outbound_hosts = ["https://httpbin.org"]
+```
+
+## Key-value store
+
+Import `Store` from `spin_sdk.key_value` to read and write persistent key-value data. Open a named store, then call `get`, `set`, and `delete`.
+
+```python app.py
+from spin_sdk.http import IncomingHandler, Request, Response
+from spin_sdk.key_value import Store
+
+
+class IncomingHandler(IncomingHandler):
+    def handle(self, request: Request) -> Response:
+        store = Store.open_default()
+
+        # Write a value.
+        store.set("greeting", b"hello")
+
+        # Read it back.
+        value = store.get("greeting") or b""
+
+        return Response(
+            200,
+            {"content-type": "text/plain"},
+            value,
+        )
+```
+
+Grant access to the store in `spin.toml`:
+
+```toml spin.toml
+[component.hello-python]
+source = "app.wasm"
+key_value_stores = ["default"]
+```
+
+## Feature support
+
+| Feature | Supported |
+|---|---|
+| HTTP trigger | Yes |
+| Redis trigger | Yes |
+| Outbound HTTP | Yes |
+| Configuration variables | Yes |
+| Key-value storage | Yes |
+| SQLite storage | Yes |
+| MySQL | No |
+| PostgreSQL | No |
+| Outbound Redis | Yes |
+| Serverless AI | Yes |
+| Authoring custom triggers | No |
+
+<Note>
+  MySQL and PostgreSQL are not currently supported in the Python SDK. If your component needs a relational database, consider using SQLite (supported) or switching to the Rust, Go, or TypeScript SDK.
+</Note>

@@ -1,0 +1,140 @@
+---
+title: "Distribute Spin apps via OCI registries"
+description: "Push and pull Spin applications to OCI-compatible registries like GitHub Container Registry or Docker Hub using spin registry commands."
+---
+
+Spin applications are distributed as OCI artifacts — not container images. The Wasm components, assets, and manifest are bundled together and pushed to any OCI-compatible registry. Recipients can pull the artifact and run it with `spin up` without needing the original source code or a build environment.
+
+## Supported registries
+
+<Columns cols={3}>
+  <Card title="GitHub Container Registry" icon="github">
+    `ghcr.io` — free for public repositories, integrated with GitHub Actions.
+  </Card>
+  <Card title="Docker Hub" icon="docker">
+    `docker.io` — widely used public registry with a free tier.
+  </Card>
+  <Card title="Azure Container Registry" icon="microsoft">
+    `<name>.azurecr.io` — managed registry on Azure with private network options.
+  </Card>
+</Columns>
+
+Any registry that supports the OCI Distribution Specification works with Spin, including self-hosted options such as Zot, Harbor, and the Docker Registry.
+
+## Authenticating to a registry
+
+Use `spin registry login` to store credentials before pushing or pulling private images. Spin prompts for a username and password if you do not supply them as flags.
+
+```bash
+# Interactive login
+spin registry login ghcr.io
+
+# Non-interactive login (useful in CI)
+echo "$GHCR_TOKEN" | spin registry login ghcr.io -u myuser --password-stdin
+```
+
+<Warning>
+Avoid passing passwords with `--password` on shared systems — the value appears in your shell history. Prefer `--password-stdin` in scripts and CI pipelines.
+</Warning>
+
+## Pushing an application
+
+Build your application first, then push it to the registry with a fully qualified reference.
+
+```bash
+spin registry push ghcr.io/org/myapp:v1.0.0
+```
+
+The reference format follows the OCI standard: `<registry>/<namespace>/<name>:<tag>`.
+
+### Compose mode
+
+By default, Spin composes component dependencies into the artifact before pushing (`--compose` is `true`). This maximises compatibility with Spin hosts that cannot perform composition themselves.
+
+```bash
+# Default: compose before push (recommended)
+spin registry push ghcr.io/org/myapp:v1.0.0
+
+# Skip composition — smaller transfers for shared deps, but requires a composing host
+spin registry push --compose=false ghcr.io/org/myapp:v1.0.0
+```
+
+### Build before push
+
+Pass `--build` to run `spin build` as part of the push command, so you do not have to run it separately:
+
+```bash
+spin registry push --build ghcr.io/org/myapp:v1.0.0
+```
+
+### Insecure registries
+
+For registries that use self-signed certificates or plain HTTP, add `--insecure`:
+
+```bash
+spin registry push --insecure localhost:5000/myapp:dev
+```
+
+### OCI manifest annotations
+
+Attach custom metadata to the pushed artifact with `--annotation`:
+
+```bash
+spin registry push \
+  --annotation org.opencontainers.image.source=https://github.com/org/repo \
+  --annotation org.opencontainers.image.licenses=Apache-2.0 \
+  ghcr.io/org/myapp:v1.0.0
+```
+
+## Pulling an application
+
+`spin registry pull` downloads an artifact to the local cache so that subsequent `spin up` calls do not need network access.
+
+```bash
+spin registry pull ghcr.io/org/myapp:v1.0.0
+```
+
+## Running directly from a registry
+
+You can skip a manual pull and run an application straight from the registry reference:
+
+```bash
+spin up -f ghcr.io/org/myapp:v1.0.0
+```
+
+Spin pulls the artifact to its cache on first run, then uses the cached copy for subsequent runs with the same reference.
+
+<Tip>
+Use an immutable tag such as a semantic version or a Git SHA for production deployments. The `latest` tag is convenient for development but can silently change behaviour between runs.
+</Tip>
+
+## Publishing workflow
+
+<Steps>
+  <Step title="Build the application">
+    ```bash
+    spin build
+    ```
+  </Step>
+  <Step title="Log in to the registry">
+    ```bash
+    spin registry login ghcr.io
+    ```
+  </Step>
+  <Step title="Push the artifact">
+    ```bash
+    spin registry push ghcr.io/org/myapp:v1.0.0
+    ```
+
+    On success, Spin prints the content digest:
+
+    ```
+    Pushed with digest sha256:abc123...
+    ```
+  </Step>
+  <Step title="Verify by pulling and running">
+    ```bash
+    spin up -f ghcr.io/org/myapp:v1.0.0
+    ```
+  </Step>
+</Steps>

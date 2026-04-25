@@ -1,0 +1,286 @@
+---
+title: "Spin application structure and spin.toml"
+description: "Learn how spin.toml defines your Spin application: top-level fields, application metadata, triggers, components, and build configuration."
+keywords: ["spin.toml", "manifest", "application structure", "spin manifest version", "component", "trigger"]
+---
+
+Every Spin application is described by a `spin.toml` manifest file at the root of the project. The manifest declares the application's metadata, which triggers it responds to, which WebAssembly components handle those triggers, and how to build those components. Spin reads this file when you run `spin up` or `spin build`, so understanding its structure is the foundation of building with Spin.
+
+## Directory structure
+
+A typical Spin application looks like this:
+
+```text
+my-app/
+├── spin.toml          # Application manifest (required)
+├── src/
+│   └── lib.rs         # Component source code
+├── Cargo.toml         # Language-specific build config
+└── target/
+    └── wasm32-wasip2/
+        └── release/
+            └── my_app.wasm   # Compiled Wasm binary
+```
+
+The manifest references the compiled `.wasm` file via each component's `source` field. All paths in `spin.toml` are relative to the manifest file itself.
+
+## Annotated spin.toml example
+
+The following is the complete `spin.toml` from the `examples/http-rust` project in the Spin repository:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+authors = ["Spin Framework Contributors"]
+description = "A simple application that returns hello."
+name = "spin-hello-world"
+version = "1.0.0"
+
+[[trigger.http]]
+route = "/hello"
+component = "hello"
+
+[component.hello]
+source = "target/wasm32-wasip2/release/http_rust.wasm"
+description = "A simple component that returns hello."
+[component.hello.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+## Top-level fields
+
+<ParamField path="spin_manifest_version" type="number" required default="2">
+  The schema version of the manifest. Must be `2` for all new applications. Spin also accepts the legacy value `"1"` (as a string) for backward compatibility with older manifests.
+</ParamField>
+
+## `[application]` section
+
+The `[application]` table holds metadata about the application as a whole.
+
+<ParamField path="application.name" type="string" required>
+  The application's identifier. Used in logging, the Spin Cloud dashboard, and OCI registry paths.
+
+  ```toml
+  [application]
+  name = "spin-hello-world"
+  ```
+</ParamField>
+
+<ParamField path="application.version" type="string" default='""'>
+  A [SemVer](https://semver.org/) version string for the application. Optional but recommended for published applications.
+
+  ```toml
+  version = "1.0.0"
+  ```
+</ParamField>
+
+<ParamField path="application.description" type="string" default='""'>
+  A human-readable description shown in `spin templates list` output and registry metadata.
+</ParamField>
+
+<ParamField path="application.authors" type="string[]" default="[]">
+  List of author names or email addresses.
+
+  ```toml
+  authors = ["Alice <alice@example.com>"]
+  ```
+</ParamField>
+
+## `[[trigger.http]]` entries
+
+Each `[[trigger.http]]` table maps an HTTP route to a component. You can have multiple entries, each handling a different route.
+
+<ParamField path="trigger.http[].route" type="string" required>
+  The URL path this trigger handles. Supports exact paths (`/hello`) and wildcard suffixes (`/api/...`). The wildcard form matches the given prefix and any path below it.
+
+  ```toml
+  [[trigger.http]]
+  route = "/api/..."
+  component = "api-handler"
+  ```
+</ParamField>
+
+<ParamField path="trigger.http[].component" type="string" required>
+  The ID of the `[component.*]` entry that handles requests on this route. Must match a key in the `[component]` table.
+</ParamField>
+
+## `[[trigger.redis]]` entries
+
+Redis triggers subscribe a component to a Pub/Sub channel. Multiple entries are allowed for different channels.
+
+<ParamField path="trigger.redis[].channel" type="string" required>
+  The Redis Pub/Sub channel to subscribe to.
+</ParamField>
+
+<ParamField path="trigger.redis[].component" type="string" required>
+  The component that handles messages arriving on this channel.
+</ParamField>
+
+<ParamField path="trigger.redis[].address" type="string">
+  Per-trigger Redis URL (e.g. `redis://localhost:6379`). Overrides the application-level `[application.trigger.redis] address` default for this specific trigger entry.
+</ParamField>
+
+## `[component.NAME]` sections
+
+Each `[component.NAME]` table defines a WebAssembly component. `NAME` is a kebab-case identifier that must match the `component` field on at least one trigger.
+
+<ParamField path="component.NAME.source" type="string | object" required>
+  The Wasm binary to run. Accepts three forms:
+
+  - **Local path** — relative to `spin.toml`:
+    ```toml
+    source = "target/wasm32-wasip2/release/my_app.wasm"
+    ```
+  - **Remote URL** — downloaded at startup, integrity-checked:
+    ```toml
+    source = { url = "https://example.com/component.wasm", digest = "sha256:abc123..." }
+    ```
+  - **OCI registry** — fetched from a Wasm component registry:
+    ```toml
+    source = { registry = "ttl.sh", package = "user:my-pkg", version = "1.0.0" }
+    ```
+</ParamField>
+
+<ParamField path="component.NAME.description" type="string" default='""'>
+  Optional human-readable description of the component's purpose.
+</ParamField>
+
+<ParamField path="component.NAME.allowed_outbound_hosts" type="string[]" default="[]">
+  Network destinations the component may connect to. Each entry is a `scheme://host[:port]` pattern. Wildcards are supported in host segments.
+
+  ```toml
+  allowed_outbound_hosts = [
+    "https://api.example.com",
+    "redis://cache.internal:6379",
+    "https://*.cdn.example.com"
+  ]
+  ```
+
+  A component with no entries cannot make any outbound network connections.
+</ParamField>
+
+<ParamField path="component.NAME.key_value_stores" type="string[]" default="[]">
+  Labels of key-value stores the component may access. The label `"default"` maps to a built-in store; other labels must be configured in a runtime config file.
+
+  ```toml
+  key_value_stores = ["default"]
+  ```
+</ParamField>
+
+<ParamField path="component.NAME.sqlite_databases" type="string[]" default="[]">
+  Labels of SQLite databases the component may access. Works the same way as `key_value_stores`.
+
+  ```toml
+  sqlite_databases = ["default", "analytics"]
+  ```
+</ParamField>
+
+<ParamField path="component.NAME.ai_models" type="string[]" default="[]">
+  AI model identifiers the component is allowed to use via the Spin AI API.
+
+  ```toml
+  ai_models = ["llama2-chat"]
+  ```
+</ParamField>
+
+<ParamField path="component.NAME.files" type="string[]" default="[]">
+  Files or directories to expose inside the component's WASI filesystem. Each entry is either a glob pattern or a `{ source, destination }` mount:
+
+  ```toml
+  files = [
+    "assets/**/*.html",
+    { source = "public", destination = "/" }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="component.NAME.variables" type="object" default="{}">
+  Component-scoped variable bindings. Values may reference application-level variables using `{{ var_name }}` syntax.
+
+  ```toml
+  [component.my-app.variables]
+  api_url = "https://{{ api_host }}/v1"
+  ```
+</ParamField>
+
+<ParamField path="component.NAME.environment" type="object" default="{}">
+  Static environment variables set in the WASI environment of the component at runtime.
+
+  ```toml
+  [component.my-app.environment]
+  LOG_LEVEL = "info"
+  ```
+</ParamField>
+
+## Build configuration
+
+The `[component.NAME.build]` sub-table tells `spin build` how to compile the component.
+
+<ParamField path="component.NAME.build.command" type="string | string[]" required>
+  Shell command (or ordered list of commands) to produce the `.wasm` binary.
+
+  ```toml
+  [component.hello.build]
+  command = "cargo build --target wasm32-wasip2 --release"
+  ```
+
+  Multiple commands run sequentially:
+
+  ```toml
+  command = ["npm install", "npm run build"]
+  ```
+</ParamField>
+
+<ParamField path="component.NAME.build.watch" type="string[]" default="[]">
+  Glob patterns that, when a matching file changes, cause `spin watch` to trigger a rebuild.
+
+  ```toml
+  watch = ["src/**/*.rs", "Cargo.toml"]
+  ```
+</ParamField>
+
+<ParamField path="component.NAME.build.workdir" type="string">
+  Working directory for the build command. Defaults to the directory containing `spin.toml`.
+</ParamField>
+
+## Multi-component application example
+
+A single `spin.toml` can define multiple triggers and components to build a complete API:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "shop-api"
+version = "0.2.0"
+description = "Shopping API with cart and inventory components"
+
+[[trigger.http]]
+route = "/cart/..."
+component = "cart"
+
+[[trigger.http]]
+route = "/inventory/..."
+component = "inventory"
+
+[component.cart]
+source = "cart/target/wasm32-wasip2/release/cart.wasm"
+key_value_stores = ["default"]
+allowed_outbound_hosts = ["https://payments.example.com"]
+[component.cart.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "cart"
+
+[component.inventory]
+source = "inventory/target/wasm32-wasip2/release/inventory.wasm"
+sqlite_databases = ["default"]
+[component.inventory.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "inventory"
+```
+
+<Note>
+  Each component is isolated: `cart` cannot access `inventory`'s SQLite database, and `inventory` cannot reach `payments.example.com` unless it declares that host in its own `allowed_outbound_hosts`.
+</Note>

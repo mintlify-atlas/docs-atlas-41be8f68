@@ -1,0 +1,174 @@
+---
+title: "Spin JavaScript & TypeScript SDK guide"
+description: "Build Spin WebAssembly components in JavaScript or TypeScript using the @fermyon/spin-sdk npm package with HTTP triggers and storage APIs."
+---
+
+The Spin JavaScript and TypeScript SDK lets you write serverless WebAssembly components using the same language and tooling you use for web development. The SDK is published as the [`@fermyon/spin-sdk`](https://www.npmjs.com/package/@fermyon/spin-sdk) npm package and is maintained by the Spin framework team. Source and additional examples are available at [github.com/spinframework/spin-js-sdk](https://github.com/spinframework/spin-js-sdk).
+
+## Installation
+
+<Steps>
+  <Step title="Create a new Spin application">
+    Scaffold a TypeScript HTTP component using the `http-ts` template:
+
+    ```bash
+    spin new --accept-defaults -t http-ts hello-ts
+    ```
+
+    For JavaScript, use the `http-js` template instead:
+
+    ```bash
+    spin new --accept-defaults -t http-js hello-js
+    ```
+  </Step>
+  <Step title="Install npm dependencies">
+    The generated project includes a `package.json` with `@fermyon/spin-sdk` listed as a dependency. Install it:
+
+    ```bash
+    npm install
+    ```
+  </Step>
+  <Step title="Build and run">
+    Spin invokes the JS bundler as part of `spin build`, which produces a `.wasm` file from your TypeScript or JavaScript source.
+
+    ```bash
+    spin build
+    spin up
+    ```
+
+    <Note>
+      The JS SDK requires a bundler step (webpack or esbuild) to produce the Wasm component. The template configures this automatically. Do not skip `spin build` and attempt to run `.js` files directly.
+    </Note>
+  </Step>
+</Steps>
+
+## HTTP handler
+
+Export a `handleRequest` function as the default export. It receives the incoming `Request` object and must return a `Response`.
+
+<CodeGroup>
+
+```typescript src/index.ts
+import { ResponseBuilder } from "@fermyon/spin-sdk";
+
+export default {
+  async fetch(req: Request): Promise<Response> {
+    return new Response("Hello from TypeScript!", {
+      status: 200,
+      headers: { "content-type": "text/plain" },
+    });
+  },
+};
+```
+
+```javascript src/index.js
+export default {
+  async fetch(req) {
+    return new Response("Hello from JavaScript!", {
+      status: 200,
+      headers: { "content-type": "text/plain" },
+    });
+  },
+};
+```
+
+</CodeGroup>
+
+The corresponding `spin.toml` routes HTTP requests to the component:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "hello-ts"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "hello-ts"
+
+[component.hello-ts]
+source = "target/hello-ts.wasm"
+allowed_outbound_hosts = []
+
+[component.hello-ts.build]
+command = "npm run build"
+watch = ["src/**/*.ts", "package.json"]
+```
+
+## Outbound HTTP
+
+The JS SDK polyfills the standard `fetch()` API. Use it exactly as you would in a browser or Node.js environment. Spin enforces the `allowed_outbound_hosts` list at runtime.
+
+```typescript src/index.ts
+export default {
+  async fetch(_req: Request): Promise<Response> {
+    const upstream = await fetch("https://httpbin.org/get");
+    const data = await upstream.json();
+
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  },
+};
+```
+
+```toml spin.toml
+[component.hello-ts]
+source = "target/hello-ts.wasm"
+allowed_outbound_hosts = ["https://httpbin.org"]
+```
+
+## Key-value store
+
+Import `Kv` from `@fermyon/spin-sdk` to access the default key-value store. The API mirrors a simple map: `get`, `set`, `delete`, and `exists`.
+
+```typescript src/index.ts
+import { Kv } from "@fermyon/spin-sdk";
+
+export default {
+  async fetch(req: Request): Promise<Response> {
+    const store = Kv.openDefault();
+
+    // Write a value.
+    store.setJson("last-request", { url: req.url, time: Date.now() });
+
+    // Read it back.
+    const last = store.getJson("last-request");
+
+    return new Response(JSON.stringify(last), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  },
+};
+```
+
+Grant access in `spin.toml`:
+
+```toml spin.toml
+[component.hello-ts]
+source = "target/hello-ts.wasm"
+key_value_stores = ["default"]
+```
+
+## Feature support
+
+| Feature | Supported |
+|---|---|
+| HTTP trigger | Yes |
+| Redis trigger | Yes |
+| Outbound HTTP | Yes |
+| Configuration variables | Yes |
+| Key-value storage | Yes |
+| SQLite storage | Yes |
+| MySQL | Yes |
+| PostgreSQL | Yes |
+| Outbound Redis | Yes |
+| Serverless AI | Yes |
+| Authoring custom triggers | No |
+
+<Tip>
+  TypeScript is recommended over plain JavaScript for production components. The SDK ships TypeScript type definitions, giving you autocomplete and compile-time checks for all Spin APIs.
+</Tip>

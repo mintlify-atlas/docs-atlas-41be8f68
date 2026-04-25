@@ -1,0 +1,86 @@
+---
+title: "spin new — scaffold a new Spin application"
+description: "spin new creates a Spin application from a template. Specify a template ID with -t, pass values with -v, and use --accept-defaults to skip interactive prompts."
+---
+
+`spin new` scaffolds a new Spin application from a template. It interactively prompts for a name and any template-specific parameters, then generates the project files in a new directory. Use `spin add` to add a new component to an existing application.
+
+## Usage
+
+```bash
+spin new [OPTIONS] [NAME]
+```
+
+## Flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--template <ID>` | `-t` | Template ID to scaffold from (e.g. `http-rust`, `http-go`) |
+| `--tag <TAG>` | | Filter templates by tag (conflicts with `--template`) |
+| `--output <DIR>` | `-o` | Output directory (default: the name argument) |
+| `--init` | | Create in the current directory instead of a new subdirectory |
+| `--value <KEY=VALUE>` | `-v` | Set a template parameter value |
+| `--values-file <FILE>` | | TOML file of parameter values |
+| `--accept-defaults` | `-a` | Accept default values for all parameters without prompting |
+| `--no-vcs` | | Skip creating a `.gitignore` file |
+| `--allow-overwrite` | | Overwrite existing files in the output directory |
+
+## Examples
+
+Create an HTTP application in Rust, accepting all defaults:
+
+```bash
+spin new --accept-defaults -t http-rust hello-rust
+```
+
+Create a Redis application in Go:
+
+```bash
+spin new -t redis-go my-redis-app
+```
+
+Pass template parameter values directly:
+
+```bash
+spin new -t http-rust my-app -v project-description="My API handler"
+```
+
+Scaffold into the current directory:
+
+```bash
+mkdir my-app && cd my-app
+spin new -t http-rust --init
+```
+
+## Built-in templates
+
+Run `spin templates list` to see all available templates. The default templates include:
+
+| Template ID | Language | Trigger |
+|---|---|---|
+| `http-rust` | Rust | HTTP |
+| `http-go` | Go (TinyGo) | HTTP |
+| `http-js` | JavaScript | HTTP |
+| `http-ts` | TypeScript | HTTP |
+| `http-python` | Python | HTTP |
+| `http-c` | C | HTTP |
+| `http-grain` | Grain | HTTP |
+| `http-php` | PHP | HTTP |
+| `http-zig` | Zig | HTTP |
+| `redis-rust` | Rust | Redis |
+| `redis-go` | Go (TinyGo) | Redis |
+| `static-fileserver` | Rust | HTTP (file server) |
+
+## spin add
+
+To add a component to an existing application, use `spin add` instead:
+
+```bash
+spin add -t http-rust new-component
+```
+
+`spin add` accepts the same flags as `spin new` and appends the new component to the existing `spin.toml`.
+
+<Tip>
+Run `spin new` without any arguments to browse available templates interactively.
+</Tip>

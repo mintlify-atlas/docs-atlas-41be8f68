@@ -1,0 +1,142 @@
+---
+title: "Authoring custom Spin triggers in Rust"
+description: "Build custom Spin triggers in Rust to handle new event sources. Define a WIT interface, implement the trigger crate, and package it as a Spin plugin."
+---
+
+Spin's trigger system is extensible — you can implement your own trigger type to connect Spin components to any event source, from message queues to timers to webhooks from proprietary systems. Custom trigger authoring is supported only in Rust; other language SDKs do not expose the trigger host interface.
+
+<Warning>
+Writing a custom trigger requires deep familiarity with Rust, the WebAssembly component model, and the Wasmtime runtime. It is an advanced use case intended for teams building platform infrastructure on top of Spin.
+</Warning>
+
+## How triggers work
+
+A trigger is a host-side Rust binary that:
+1. Listens for events from an external source (HTTP port, Redis channel, timer, etc.)
+2. Loads and instantiates a Spin component that implements a WIT handler interface
+3. Calls the component handler with the event data
+4. Handles the response (if any)
+
+The built-in `spin-trigger-http` and `spin-trigger-redis` crates in the repository are the canonical reference implementations.
+
+## The spin-timer example
+
+The repository ships a worked example at `examples/spin-timer/` that implements a simple timer trigger — it fires a component handler on a fixed interval. Its structure illustrates all the pieces you need.
+
+```
+examples/spin-timer/
+├── Cargo.toml
+├── Cargo.lock
+├── spin-timer.wit          # WIT interface for the timer handler
+├── trigger-timer.json      # Plugin manifest
+├── src/                    # Trigger host implementation (Rust)
+└── app-example/            # Example Spin app using the timer trigger
+```
+
+## Step 1: define the WIT interface
+
+Create a `.wit` file that describes the interface your components must implement. For the timer example:
+
+```wit spin-timer.wit
+package spin:timer;
+
+interface timer-handler {
+    record timer-trigger-data {
+        elapsed-ms: u64,
+    }
+    handle-timer-request: func(data: timer-trigger-data) -> result;
+}
+
+world timer-trigger {
+    export timer-handler;
+}
+```
+
+This WIT world becomes the contract between your trigger host and every component that uses it.
+
+## Step 2: implement the trigger crate
+
+Your trigger is a Rust binary that depends on `spin-trigger` and `wasmtime`. The key steps:
+
+```rust src/main.rs
+use spin_trigger::{TriggerApp, TriggerExecutor};
+
+// Define your trigger configuration type (read from spin.toml)
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct TimerTriggerConfig {
+    pub interval_secs: u64,
+}
+
+// Implement TriggerExecutor to handle events
+#[async_trait]
+impl TriggerExecutor for TimerTrigger {
+    type RuntimeData = ();
+    type TriggerConfig = TimerTriggerConfig;
+
+    async fn run(self, trigger_app: TriggerApp<Self>) -> anyhow::Result<()> {
+        // Poll the event source and call component handlers
+        loop {
+            tokio::time::sleep(Duration::from_secs(self.interval_secs)).await;
+            for (component_id, config) in trigger_app.trigger_configs() {
+                // Instantiate and call the component
+                let instance = trigger_app.prepare_instance(component_id).await?;
+                // ... invoke the WIT function
+            }
+        }
+    }
+}
+```
+
+## Step 3: configure spin.toml for the custom trigger
+
+Applications using your trigger declare it with a custom trigger type name:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-timer-app"
+version = "0.1.0"
+
+[[trigger.timer]]
+component = "timer-handler"
+interval_secs = 10
+
+[component.timer-handler]
+source = "target/wasm32-wasip2/release/timer_handler.wasm"
+```
+
+## Step 4: package as a plugin
+
+Custom triggers are distributed as Spin plugins. Create a JSON plugin manifest:
+
+```json trigger-timer.json
+{
+  "name": "trigger-timer",
+  "description": "A timer trigger for Spin",
+  "version": "0.1.0",
+  "spinCompatibility": ">=2.0",
+  "license": "Apache-2.0",
+  "packages": [
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "url": "https://example.com/releases/trigger-timer-linux-amd64.tar.gz",
+      "sha256": "<sha256 of tarball>"
+    }
+  ]
+}
+```
+
+Users install and use your trigger plugin like any other:
+
+```bash
+spin plugins install --url https://example.com/trigger-timer.json
+spin up --from my-timer-app/spin.toml
+```
+
+## Further reading
+
+- [`examples/spin-timer/`](https://github.com/spinframework/spin/tree/main/examples/spin-timer) — Complete working example in the Spin repository
+- [`crates/trigger-http/`](https://github.com/spinframework/spin/tree/main/crates/trigger-http) — HTTP trigger implementation to use as a reference
+- [`crates/trigger/`](https://github.com/spinframework/spin/tree/main/crates/trigger) — Core trigger infrastructure and `TriggerExecutor` trait

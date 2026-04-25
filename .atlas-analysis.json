@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Spin",
+  "projectType": "framework",
+  "projectName": "Spin",
+  "projectDescription": "Spin is an open source framework and CLI for building, distributing, and running fast, secure serverless applications powered by WebAssembly.",
   "theme": "aspen",
-  "colors": {
-    "primary": "#0c243c",
-    "light": "#040404"
-  },
-  "favicon": "https://media.brand.dev/56223754-34d6-43b7-9d17-8da956234563.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/spinframework/spin"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/spinframework/spin"
-    }
-  },
+  "primaryColor": "#0c243c",
+  "lightColor": "#040404",
+  "darkColor": null,
   "navigation": {
     "tabs": [
       {
@@ -96,5 +84,37 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "WebAssembly-native serverless application framework",
+    "Multi-language support: Rust, JavaScript/TypeScript, Python, Go",
+    "HTTP and Redis trigger types",
+    "Built-in key-value store, SQLite, and relational database support",
+    "Serverless AI inference integration",
+    "OCI registry-based application distribution",
+    "Extensible plugin system",
+    "Hot-reload development workflow with `spin watch`",
+    "Component-model-based composability",
+    "Template-driven scaffolding with `spin new`"
+  ],
+  "publicApiSurface": [
+    "spin new",
+    "spin build",
+    "spin up",
+    "spin watch",
+    "spin plugins install/list/upgrade",
+    "spin registry push/pull/login",
+    "spin templates install/list",
+    "spin doctor",
+    "spin.toml manifest (application manifest)",
+    "HTTP trigger (spin-trigger-http)",
+    "Redis trigger (spin-trigger-redis)",
+    "Key-value store API (factor-key-value)",
+    "SQLite API (factor-sqlite)",
+    "Variables/config API (factor-variables)",
+    "Outbound HTTP API (factor-outbound-http)",
+    "LLM inference API (factor-llm)",
+    "Outbound Redis API (factor-outbound-redis)",
+    "MySQL/PostgreSQL APIs (factor-outbound-mysql, factor-outbound-pg)"
+  ]
 }

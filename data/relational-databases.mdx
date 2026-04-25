@@ -1,0 +1,343 @@
+---
+title: "PostgreSQL and MySQL from Spin components"
+description: "Connect to PostgreSQL or MySQL databases from Spin components using the outbound database APIs. Supports parameterized queries and typed result rows."
+keywords: ["postgresql", "mysql", "outbound database", "spin postgres", "spin mysql", "sql", "rdbms", "parameterized queries"]
+---
+
+Spin components can connect to external PostgreSQL and MySQL databases using the outbound database APIs. Both databases require an explicit outbound network permission in `spin.toml`—Spin denies connections to any host not listed in `allowed_outbound_hosts`. Queries are always parameterized; Spin never interpolates user data into SQL strings, which prevents SQL injection at the API level.
+
+<Note>
+  Python does not currently support the PostgreSQL or MySQL outbound APIs. Use the built-in [key-value store](/data/key-value-store) or [SQLite](/data/sqlite) if you need storage from a Python component.
+</Note>
+
+## Enabling outbound database access
+
+Add the database server to `allowed_outbound_hosts` in `spin.toml`:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-app"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "my-app"
+
+[component.my-app]
+source = "target/wasm32-wasip2/release/my_app.wasm"
+allowed_outbound_hosts = [
+  "postgres://db.example.com:5432",
+  "mysql://mysql.example.com:3306",
+]
+```
+
+The host entry must include the scheme (`postgres://` or `mysql://`) and port. Wildcards are supported: `postgres://*:5432` permits connections to any host on port 5432.
+
+## PostgreSQL
+
+The PostgreSQL API is defined in `spin:postgres@4.2.0`. The `connection` resource exposes `open`, `execute`, and `query`:
+
+```wit
+resource connection {
+  open:         static func(address: string) -> result<connection, error>;
+  open-async:   static async func(address: string) -> result<connection, error>;
+
+  execute:      func(statement: string, params: list<parameter-value>) -> result<u64, error>;
+  execute-async: async func(statement: string, params: list<parameter-value>) -> result<u64, error>;
+
+  query:        func(statement: string, params: list<parameter-value>) -> result<row-set, error>;
+  query-async:  async func(statement: string, params: list<parameter-value>)
+                  -> result<tuple<list<column>, stream<row>, future<result<_, error>>>, error>;
+}
+```
+
+`execute` returns the number of rows affected. `query` returns a `row-set` with `columns` and `rows`. For TLS with a custom CA certificate, use the `connection-builder` resource (available from v4.1.0) to call `set-ca-root` before connecting.
+
+### PostgreSQL examples
+
+<Tabs>
+  <Tab title="Rust">
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response};
+use spin_sdk::http_service;
+use spin_sdk::pg::{Connection, ParameterValue};
+
+#[http_service]
+async fn handle(_req: Request) -> anyhow::Result<impl IntoResponse> {
+    let addr = "postgres://user:password@db.example.com:5432/mydb";
+    let conn = Connection::open(addr)?;
+
+    // INSERT / UPDATE / DELETE — returns rows affected
+    let affected = conn.execute(
+        "INSERT INTO orders (product, qty) VALUES ($1, $2)",
+        &[
+            ParameterValue::Str("widget".into()),
+            ParameterValue::Int32(10),
+        ],
+    )?;
+
+    // SELECT — returns a RowSet
+    let result = conn.query(
+        "SELECT id, product, qty FROM orders WHERE qty > $1",
+        &[ParameterValue::Int32(0)],
+    )?;
+
+    let mut body = format!("inserted: {affected}\n");
+    for row in &result.rows {
+        let id  = &row[0];
+        let product = &row[1];
+        let qty = &row[2];
+        body.push_str(&format!("{id:?}  {product:?}  {qty:?}\n"));
+    }
+
+    Ok(Response::builder().status(200).body(body).build())
+}
+```
+
+  </Tab>
+  <Tab title="JavaScript / TypeScript">
+
+```typescript src/index.ts
+import { AutoRouter } from "itty-router";
+import { Pg } from "@fermyon/spin-sdk";
+
+const router = AutoRouter();
+
+router.get("/", async () => {
+  const addr = "postgres://user:password@db.example.com:5432/mydb";
+  const db = Pg.open(addr);
+
+  db.execute("INSERT INTO orders (product, qty) VALUES ($1, $2)", [
+    "widget",
+    10,
+  ]);
+
+  const result = db.query(
+    "SELECT id, product, qty FROM orders WHERE qty > $1",
+    [0]
+  );
+
+  const rows = result.rows
+    .map((r) => `${r[0]}  ${r[1]}  ${r[2]}`)
+    .join("\n");
+
+  return new Response(rows);
+});
+
+export default router;
+```
+
+  </Tab>
+  <Tab title="Go">
+
+```go main.go
+package main
+
+import (
+    "fmt"
+    "net/http"
+
+    spinhttp "github.com/fermyon/spin/sdk/go/v2/http"
+    "github.com/fermyon/spin/sdk/go/v2/pg"
+)
+
+func init() {
+    spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+        addr := "postgres://user:password@db.example.com:5432/mydb"
+        db, err := pg.Open(addr)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        _, err = db.Execute(
+            "INSERT INTO orders (product, qty) VALUES ($1, $2)",
+            []pg.ParameterValue{pg.ParameterStr("widget"), pg.ParameterInt32(10)},
+        )
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        result, err := db.Query(
+            "SELECT id, product, qty FROM orders WHERE qty > $1",
+            []pg.ParameterValue{pg.ParameterInt32(0)},
+        )
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        for _, row := range result.Rows {
+            fmt.Fprintf(w, "%v  %v  %v\n", row[0], row[1], row[2])
+        }
+    })
+}
+
+func main() {}
+```
+
+  </Tab>
+</Tabs>
+
+## MySQL
+
+The MySQL API (`spin@2.0.0` / `spin@unversioned`) exposes `open`, `execute`, and `query` on the `connection` resource. The signature is the same as PostgreSQL except that `execute` returns `()` (no row count) and uses `$1`-style parameters replaced by positional `?` placeholders in MySQL syntax.
+
+<Tabs>
+  <Tab title="Rust">
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response};
+use spin_sdk::http_service;
+use spin_sdk::mysql::{Connection, ParameterValue};
+
+#[http_service]
+async fn handle(_req: Request) -> anyhow::Result<impl IntoResponse> {
+    let addr = "mysql://user:password@mysql.example.com:3306/mydb";
+    let conn = Connection::open(addr)?;
+
+    // MySQL execute returns () not a row count
+    conn.execute(
+        "INSERT INTO events (name, value) VALUES (?, ?)",
+        &[
+            ParameterValue::Str("click".into()),
+            ParameterValue::Int32(1),
+        ],
+    )?;
+
+    let result = conn.query(
+        "SELECT id, name, value FROM events LIMIT 10",
+        &[],
+    )?;
+
+    let mut body = String::new();
+    for row in &result.rows {
+        body.push_str(&format!("{:?}\n", row));
+    }
+
+    Ok(Response::builder().status(200).body(body).build())
+}
+```
+
+  </Tab>
+  <Tab title="JavaScript / TypeScript">
+
+```typescript src/index.ts
+import { AutoRouter } from "itty-router";
+import { Mysql } from "@fermyon/spin-sdk";
+
+const router = AutoRouter();
+
+router.get("/", async () => {
+  const addr = "mysql://user:password@mysql.example.com:3306/mydb";
+  const db = Mysql.open(addr);
+
+  db.execute("INSERT INTO events (name, value) VALUES (?, ?)", [
+    "click",
+    1,
+  ]);
+
+  const result = db.query("SELECT id, name, value FROM events LIMIT 10", []);
+  const rows = result.rows.map((r) => r.join("  ")).join("\n");
+
+  return new Response(rows);
+});
+
+export default router;
+```
+
+  </Tab>
+  <Tab title="Go">
+
+```go main.go
+package main
+
+import (
+    "fmt"
+    "net/http"
+
+    spinhttp "github.com/fermyon/spin/sdk/go/v2/http"
+    "github.com/fermyon/spin/sdk/go/v2/mysql"
+)
+
+func init() {
+    spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+        addr := "mysql://user:password@mysql.example.com:3306/mydb"
+        db, err := mysql.Open(addr)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        err = db.Execute(
+            "INSERT INTO events (name, value) VALUES (?, ?)",
+            []mysql.ParameterValue{mysql.ParameterStr("click"), mysql.ParameterInt32(1)},
+        )
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        result, err := db.Query("SELECT id, name, value FROM events LIMIT 10", nil)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        for _, row := range result.Rows {
+            fmt.Fprintf(w, "%v\n", row)
+        }
+    })
+}
+
+func main() {}
+```
+
+  </Tab>
+</Tabs>
+
+## Row values and parameter types
+
+Both PostgreSQL and MySQL use a `parameter-value` variant for bind parameters and a `db-value` variant for returned column data. The PostgreSQL interface supports a rich set of types including `boolean`, `int8` through `int64`, `floating32`, `floating64`, `str`, `binary`, `date`, `time`, `datetime`, `timestamp`, `uuid`, `jsonb`, `decimal`, ranges, and arrays. MySQL uses the same `parameter-value` and `row-set` types but with a narrower range of supported column types.
+
+<Warning>
+  Always use parameterized queries. Passing user input directly into SQL strings is not supported by the API and should never be done with string concatenation in your own code.
+</Warning>
+
+## TLS connections (PostgreSQL)
+
+For PostgreSQL connections that require a custom CA certificate, use the `connection-builder` resource available from `spin:postgres@4.1.0`:
+
+```rust src/lib.rs
+use spin_sdk::pg::ConnectionBuilder;
+
+let builder = ConnectionBuilder::new("postgres://db.internal:5432/mydb");
+builder.set_ca_root(include_str!("../certs/ca.pem"))?;
+let conn = builder.build()?;
+```
+
+## Error variants
+
+### PostgreSQL errors
+
+| Error | Cause |
+|---|---|
+| `connection-failed(string)` | Could not open a connection to the database. |
+| `bad-parameter(string)` | A parameter value could not be encoded. |
+| `query-failed(query-error)` | The database rejected the query. |
+| `value-conversion-failed(string)` | A result column could not be decoded into the expected type. |
+| `other(string)` | An unclassified error. |
+
+### MySQL errors
+
+| Error | Cause |
+|---|---|
+| `connection-failed(string)` | Could not connect to the MySQL server. |
+| `bad-parameter(string)` | A parameter value could not be encoded. |
+| `query-failed(string)` | The database rejected the query. |
+| `value-conversion-failed(string)` | A result column could not be decoded. |
+| `other-error(string)` | An unclassified error. |

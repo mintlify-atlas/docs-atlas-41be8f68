@@ -1,0 +1,89 @@
+---
+title: "spin up — run a Spin application locally"
+description: "spin up starts the Spin runtime and serves your app from a local spin.toml or OCI reference. Configure port, environment variables, and runtime config options."
+---
+
+`spin up` starts the Spin runtime and serves your application. By default it looks for `spin.toml` in the current directory. You can also run applications directly from OCI registry references, making it easy to test published artifacts without a local checkout.
+
+## Usage
+
+```bash
+spin up [OPTIONS]
+```
+
+## Flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--from <SOURCE>` | `-f` | Application source: path to `spin.toml`, directory, OCI ref, or `.wasm` file |
+| `--listen <ADDR>` | | Address to listen on (default: `127.0.0.1:3000`) |
+| `--env <KEY=VALUE>` | `-e` | Pass an environment variable to all components (repeatable) |
+| `--runtime-config-file <FILE>` | | Path to a runtime config TOML file |
+| `--build` | | Run `spin build` before starting |
+| `--insecure` | `-k` | Ignore TLS certificate errors from OCI registries |
+| `--component-id <ID>` | `-c` | Run only specific component IDs (experimental) |
+| `--direct-mounts` | | Mount local asset directories directly instead of copying to a temp dir |
+| `--temp <DIR>` | | Temporary directory for static assets |
+| `--cache-dir <DIR>` | | Cache directory for downloaded components |
+
+## Examples
+
+Run the application in the current directory:
+
+```bash
+spin up
+```
+
+Run on a custom port:
+
+```bash
+spin up --listen 0.0.0.0:8080
+```
+
+Run from an OCI registry reference:
+
+```bash
+spin up -f ghcr.io/myorg/myapp:v1.0.0
+```
+
+Pass environment variables:
+
+```bash
+spin up -e DATABASE_URL=postgres://localhost/mydb -e LOG_LEVEL=debug
+```
+
+Build first, then run:
+
+```bash
+spin up --build
+```
+
+Use a custom runtime config:
+
+```bash
+spin up --runtime-config-file runtime-config.toml
+```
+
+## Runtime configuration
+
+A `runtime-config.toml` file overrides how Spin resolves storage backends and variable providers at runtime:
+
+```toml runtime-config.toml
+[key_value_store.default]
+type = "redis"
+url = "redis://localhost:6379"
+
+[variable_provider]
+type = "vault"
+url = "http://localhost:8200"
+mount = "secret"
+token = "mytoken"
+```
+
+<Note>
+When running from an OCI registry reference, `spin up` pulls the application artifact and all referenced component Wasm modules to a local cache before starting.
+</Note>
+
+## Log output
+
+Component stdout and stderr are written to `.spin/logs/` in the current directory. Each component gets its own log file named by component ID.

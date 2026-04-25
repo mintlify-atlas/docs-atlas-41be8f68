@@ -1,0 +1,249 @@
+---
+title: "SQLite storage for Spin serverless components"
+description: "Run SQL queries against an embedded SQLite database from any Spin component. Zero-config locally, with cloud-backed options when deployed."
+keywords: ["sqlite", "spin sqlite", "embedded database", "sql", "libsql", "turso", "runtime config", "serverless database"]
+---
+
+Spin exposes a SQLite database to components through the `spin:sqlite` interface. Locally, the default database is a file on disk—there is nothing to install or configure. When your application runs on Fermyon Cloud or a compatible Spin host, the platform provides a managed SQLite-compatible store. For production use cases that need replication or branching, you can point the runtime config at a LibSQL/Turso endpoint instead.
+
+## Enabling SQLite
+
+Declare which database labels a component may access using `sqlite_databases` in `spin.toml`:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-app"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "my-app"
+
+[component.my-app]
+source = "target/wasm32-wasip2/release/my_app.wasm"
+sqlite_databases = ["default"]
+```
+
+<Note>
+  A component can only open databases listed in its `sqlite_databases`. Opening an unlisted database raises a `no-such-database` or `access-denied` error.
+</Note>
+
+## WIT interface
+
+The SQLite API is defined in `spin:sqlite@3.1.0`. The `connection` resource provides `open`, `execute`, and `query`:
+
+```wit
+resource connection {
+  open:       static func(database: string) -> result<connection, error>;
+  open-async: static async func(database: string) -> result<connection, error>;
+
+  execute:       func(statement: string, parameters: list<value>) -> result<query-result, error>;
+  execute-async: async func(statement: string, parameters: list<value>)
+                   -> result<tuple<list<string>, stream<row-result>, future<result<_, error>>>, error>;
+
+  last-insert-rowid: func() -> s64;
+  changes:           func() -> u64;
+}
+```
+
+Parameter values and result columns use the `value` variant: `integer(s64)`, `real(f64)`, `text(string)`, `blob(list<u8>)`, or `null`.
+
+## Language examples
+
+<Tabs>
+  <Tab title="Rust">
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response};
+use spin_sdk::http_service;
+use spin_sdk::sqlite::{Connection, Value};
+
+#[http_service]
+async fn handle(_req: Request) -> anyhow::Result<impl IntoResponse> {
+    let conn = Connection::open_default()?;
+
+    // Create table if it doesn't exist
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS visits (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT)",
+        &[],
+    )?;
+
+    // Insert a row
+    conn.execute(
+        "INSERT INTO visits (ts) VALUES (?)",
+        &[Value::Text(chrono::Utc::now().to_rfc3339())],
+    )?;
+
+    // Query rows
+    let result = conn.execute("SELECT id, ts FROM visits ORDER BY id DESC LIMIT 5", &[])?;
+
+    let rows: Vec<String> = result
+        .rows()
+        .map(|row| format!("{:?}", row.get::<&str>(1)))
+        .collect();
+
+    Ok(Response::builder()
+        .status(200)
+        .body(rows.join("\n"))
+        .build())
+}
+```
+
+`Connection::open_default()` opens the database labeled `"default"`. Use `Connection::open("name")` for any other label declared in `sqlite_databases`.
+
+  </Tab>
+  <Tab title="JavaScript / TypeScript">
+
+```typescript src/index.ts
+import { AutoRouter } from "itty-router";
+import { Sqlite } from "@fermyon/spin-sdk";
+
+const router = AutoRouter();
+
+router.get("/", async () => {
+  const db = Sqlite.open("default");
+
+  db.execute(
+    "CREATE TABLE IF NOT EXISTS visits (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT)",
+    []
+  );
+
+  db.execute("INSERT INTO visits (ts) VALUES (?)", [
+    new Date().toISOString(),
+  ]);
+
+  const result = db.execute(
+    "SELECT id, ts FROM visits ORDER BY id DESC LIMIT 5",
+    []
+  );
+
+  const rows = result.rows.map((r) => `${r[0]}: ${r[1]}`).join("\n");
+  return new Response(rows);
+});
+
+export default router;
+```
+
+  </Tab>
+  <Tab title="Python">
+
+```python src/app.py
+from spin_sdk import http, sqlite
+from spin_sdk.http import Request, Response
+
+class IncomingHandler(http.IncomingHandler):
+    def handle_request(self, request: Request) -> Response:
+        conn = sqlite.open("default")
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS visits "
+            "(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT)",
+            []
+        )
+        conn.execute("INSERT INTO visits (ts) VALUES (?)", ["2026-01-01T00:00:00Z"])
+
+        result = conn.execute(
+            "SELECT id, ts FROM visits ORDER BY id DESC LIMIT 5", []
+        )
+
+        lines = [f"{row.values[0]}: {row.values[1]}" for row in result.rows]
+        return Response(200, {"content-type": "text/plain"}, "\n".join(lines).encode())
+```
+
+  </Tab>
+  <Tab title="Go">
+
+```go main.go
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "time"
+
+    spinhttp "github.com/fermyon/spin/sdk/go/v2/http"
+    "github.com/fermyon/spin/sdk/go/v2/sqlite"
+)
+
+func init() {
+    spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+        db, err := sqlite.Open("default")
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        defer db.Close()
+
+        _, err = db.Execute(
+            "CREATE TABLE IF NOT EXISTS visits (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT)",
+            nil,
+        )
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        _, err = db.Execute("INSERT INTO visits (ts) VALUES (?)", []sqlite.Value{time.Now().Format(time.RFC3339)})
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        result, err := db.Execute("SELECT id, ts FROM visits ORDER BY id DESC LIMIT 5", nil)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        for _, row := range result.Rows {
+            fmt.Fprintf(w, "%v: %v\n", row[0], row[1])
+        }
+    })
+}
+
+func main() {}
+```
+
+  </Tab>
+</Tabs>
+
+## Runtime configuration
+
+By default, Spin stores each named database in a local `.sqlite` file. Supply `--runtime-config-file` to override the path or switch to a LibSQL/Turso endpoint:
+
+```bash
+spin up --runtime-config-file runtime-config.toml
+```
+
+### Custom local path
+
+```toml runtime-config.toml
+[sqlite_database.default]
+type = "spin"
+path = "/var/data/myapp.db"
+```
+
+### LibSQL / Turso
+
+```toml runtime-config.toml
+[sqlite_database.default]
+type     = "libsql"
+url      = "libsql://your-db.turso.io"
+token    = "your-turso-auth-token"
+```
+
+<Tip>
+  You can configure multiple databases with different labels and backends in the same runtime config file. Each `[sqlite_database.LABEL]` block corresponds to a label in `sqlite_databases`.
+</Tip>
+
+## Error variants
+
+| Error | Cause |
+|---|---|
+| `no-such-database` | The label is not recognized by the host. |
+| `access-denied` | The component's `sqlite_databases` list does not include this label. |
+| `invalid-connection` | The connection resource is no longer valid. |
+| `database-full` | The database has reached its storage limit. |
+| `io(string)` | An I/O or implementation-specific error. |

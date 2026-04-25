@@ -1,0 +1,241 @@
+---
+title: "Spin templates: scaffold new applications"
+description: "Use built-in and third-party Spin templates to scaffold HTTP or Redis applications in Rust, Go, and more. Install, list, and create custom templates."
+keywords: ["spin templates", "spin new", "scaffold", "http-rust", "redis-rust", "spin templates install", "custom templates"]
+---
+
+Spin templates are starter kits that generate a working `spin.toml`, source files, and build configuration for a given language and trigger type. Running `spin new` with a template saves you from writing boilerplate and ensures the generated project matches the manifest schema version and WIT interfaces that your version of Spin expects.
+
+## Built-in templates
+
+Spin ships with eleven built-in templates. Run `spin templates list` to see them:
+
+```text
++------------------+--------------------------------------------------+
+| Name             | Description                                      |
++==================+==================================================+
+| http-c           | HTTP request handler using C and the Zig toolchain |
+| http-empty       | HTTP application with no components              |
+| http-go          | HTTP request handler using (Tiny)Go              |
+| http-grain       | HTTP request handler using Grain                 |
+| http-php         | HTTP request handler using PHP                   |
+| http-rust        | HTTP request handler using Rust                  |
+| http-zig         | HTTP request handler using Zig                   |
+| redirect         | Redirects a HTTP route                           |
+| redis-go         | Redis message handler using (Tiny)Go             |
+| redis-rust       | Redis message handler using Rust                 |
+| static-fileserver| Serves static files from an asset directory      |
++------------------+--------------------------------------------------+
+```
+
+<CardGroup cols={2}>
+  <Card title="http-rust" icon="rust">
+    HTTP request handler using Rust. Generates a Cargo project targeting `wasm32-wasip2`.
+  </Card>
+  <Card title="http-go" icon="golang">
+    HTTP request handler using TinyGo. Generates a Go module with the Spin Go SDK.
+  </Card>
+  <Card title="redis-rust" icon="rust">
+    Redis Pub/Sub message handler using Rust.
+  </Card>
+  <Card title="redis-go" icon="golang">
+    Redis Pub/Sub message handler using TinyGo.
+  </Card>
+  <Card title="static-fileserver" icon="file">
+    Serves static files from a local directory using a pre-built component binary.
+  </Card>
+  <Card title="redirect" icon="arrow-right">
+    Adds an HTTP redirect from one route to another using a pre-built component.
+  </Card>
+  <Card title="http-empty" icon="cube">
+    Creates a `spin.toml` with no components—useful as a starting point before adding components with `spin add`.
+  </Card>
+  <Card title="http-c / http-zig / http-grain / http-php" icon="code">
+    HTTP handlers in C (via Zig toolchain), Zig, Grain, and PHP respectively.
+  </Card>
+</CardGroup>
+
+## Creating a new application
+
+Use `spin new` with a `-t` flag to select a template:
+
+```bash
+spin new -t http-rust my-app
+```
+
+Spin prompts for any parameters the template requires and writes the project to a new `my-app/` directory:
+
+```text
+Description []: A simple hello-world service
+HTTP path [/...]: /hello
+
+✔ Project generated here: my-app
+```
+
+The generated `spin.toml` is a ready-to-build manifest:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-app"
+version = "0.1.0"
+authors = ["you@example.com"]
+description = "A simple hello-world service"
+
+[[trigger.http]]
+route = "/hello"
+component = "my-app"
+
+[component.my-app]
+source = "target/wasm32-wasip2/release/my_app.wasm"
+allowed_outbound_hosts = []
+[component.my-app.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+Build and run the generated project:
+
+```bash
+cd my-app
+spin build
+spin up
+```
+
+## Template parameters
+
+Each template declares its own parameters. Pass values directly on the command line to skip interactive prompts:
+
+```bash
+spin new -t http-rust my-api \
+  --value "project-description=REST API for orders" \
+  --value "http-path=/api/..."
+```
+
+For the `redis-rust` template, the required parameters are:
+
+| Parameter | Prompt | Default |
+|---|---|---|
+| `project-description` | Description | *(empty)* |
+| `redis-address` | Redis address | `redis://localhost:6379` |
+| `redis-channel` | Redis channel | *(required)* |
+
+```bash
+spin new -t redis-rust order-consumer \
+  --value "redis-address=redis://cache.internal:6379" \
+  --value "redis-channel=orders"
+```
+
+## Adding components to an existing application
+
+Use `spin add` to scaffold a new component into an existing `spin.toml`. This is equivalent to running `spin new` in "add component" mode:
+
+```bash
+# In an existing Spin project directory
+spin add -t http-rust worker --value "http-path=/worker/..."
+```
+
+Spin merges the new component definition into the current `spin.toml` rather than creating a new project directory.
+
+## Installing third-party templates
+
+Install templates from any public Git repository:
+
+```bash
+spin templates install --git https://github.com/example-org/spin-templates
+```
+
+You can pin to a specific branch or tag:
+
+```bash
+spin templates install \
+  --git https://github.com/example-org/spin-templates \
+  --branch v2
+```
+
+After installation the new templates appear in `spin templates list` alongside the built-ins.
+
+### Uninstalling templates
+
+```bash
+spin templates uninstall http-rust
+```
+
+## Creating custom templates
+
+A Spin template is a directory with two sub-directories:
+
+```text
+my-template/
+├── content/         # Files copied (and rendered) into the new project
+│   ├── spin.toml    # Manifest template (uses Liquid syntax)
+│   └── src/
+│       └── lib.rs
+└── metadata/
+    └── spin-template.toml   # Template manifest
+```
+
+### Template manifest (`spin-template.toml`)
+
+```toml metadata/spin-template.toml
+manifest_version = "1"
+id = "http-rust"
+description = "HTTP request handler using Rust"
+tags = ["http", "rust"]
+
+[add_component]
+skip_files = ["spin.toml"]
+[add_component.snippets]
+component = "component.txt"
+
+[parameters]
+project-description = { type = "string", prompt = "Description", default = "" }
+http-path = { type = "string", prompt = "HTTP path", default = "/...", pattern = "^/\\S*$" }
+```
+
+| Field | Description |
+|---|---|
+| `id` | Template identifier used with `spin new -t ID` |
+| `description` | Shown in `spin templates list` |
+| `tags` | Used to filter templates |
+| `[parameters]` | Parameters the user is prompted for |
+
+### Content file templating
+
+Files in `content/` are processed with [Liquid](https://shopify.github.io/liquid/) template syntax. The built-in `http-rust` `spin.toml` template uses these substitutions:
+
+```toml content/spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "{{project-name | kebab_case}}"
+version = "0.1.0"
+authors = ["{{authors}}"]
+description = "{{project-description}}"
+
+[[trigger.http]]
+route = "{{http-path}}"
+component = "{{project-name | kebab_case}}"
+
+[component.{{project-name | kebab_case}}]
+source = "target/wasm32-wasip2/release/{{project-name | snake_case}}.wasm"
+allowed_outbound_hosts = []
+[component.{{project-name | kebab_case}}.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+Available filters include `kebab_case`, `snake_case`, `pascal_case`, and others provided by the Spin template renderer.
+
+### Install from a local directory
+
+During development, install a template directly from its directory:
+
+```bash
+spin templates install --dir ./my-template
+```
+
+<Note>
+  Templates installed from a local directory show their directory path in `spin templates list` rather than a Git URL. They behave identically to templates installed from Git.
+</Note>

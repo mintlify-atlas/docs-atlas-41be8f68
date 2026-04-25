@@ -1,0 +1,224 @@
+---
+title: "Key-value store: persistent data in Spin apps"
+description: "Spin's built-in key-value store lets components persist and share string and binary data without external infrastructure. Supports Rust, JS, Python, and Go."
+keywords: ["key-value store", "kv", "persistent storage", "spin storage", "runtime config", "redis backend", "azure cosmos"]
+---
+
+Spin provides a built-in key-value store that any component can use to persist and share data across requests. Locally, the default store is backed by SQLite on disk—no external infrastructure required. When deployed to Fermyon Cloud or another Spin-compatible host, the store is backed by the platform's managed key-value service. You can also configure alternative backends, such as Redis or Azure Cosmos DB, using a runtime config file.
+
+## Enabling the key-value store
+
+Add a `key_value_stores` field to the component section of your `spin.toml`. The value `"default"` refers to the platform-managed store that Spin creates automatically:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-app"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "my-app"
+
+[component.my-app]
+source = "target/wasm32-wasip2/release/my_app.wasm"
+key_value_stores = ["default"]
+```
+
+<Note>
+  A component can only access stores listed in its `key_value_stores`. Attempting to open a store not listed there raises an `access-denied` error.
+</Note>
+
+## WIT interface
+
+The key-value store is defined in `spin:key-value@3.0.0`. The `store` resource exposes `open`, `get`, `set`, `delete`, `exists`, and `get-keys`:
+
+```wit
+resource store {
+  open:     static async func(label: string) -> result<store, error>;
+  get:      async func(key: string) -> result<option<list<u8>>, error>;
+  set:      async func(key: string, value: list<u8>) -> result<_, error>;
+  delete:   async func(key: string) -> result<_, error>;
+  exists:   async func(key: string) -> result<bool, error>;
+  get-keys: async func() -> tuple<stream<string>, future<result<_, error>>>;
+}
+```
+
+Keys and values are both arbitrary byte sequences. The SDK for each language wraps these types with idiomatic conversions.
+
+## Language examples
+
+<Tabs>
+  <Tab title="Rust">
+
+Add `spin-sdk` to `Cargo.toml`, then use `spin_sdk::key_value::Store`:
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response};
+use spin_sdk::http_service;
+use spin_sdk::key_value::Store;
+
+#[http_service]
+async fn handle(req: Request) -> anyhow::Result<impl IntoResponse> {
+    let store = Store::open_default()?;
+
+    // Write a value
+    store.set("visit-count", b"42")?;
+
+    // Read it back
+    let raw = store.get("visit-count")?.unwrap_or_default();
+    let count = String::from_utf8(raw)?;
+
+    // Check existence and delete
+    if store.exists("visit-count")? {
+        store.delete("visit-count")?;
+    }
+
+    // List all keys
+    let keys = store.get_keys()?;
+
+    Ok(Response::builder()
+        .status(200)
+        .body(format!("count was: {count}, all keys: {keys:?}"))
+        .build())
+}
+```
+
+`Store::open_default()` is shorthand for `Store::open("default")`. Both require `key_value_stores = ["default"]` in `spin.toml`.
+
+  </Tab>
+  <Tab title="JavaScript / TypeScript">
+
+```typescript src/index.ts
+import { AutoRouter } from "itty-router";
+import { Kv } from "@fermyon/spin-sdk";
+
+const router = AutoRouter();
+
+router.get("/", async () => {
+  const store = Kv.openDefault();
+
+  store.set("visit-count", new TextEncoder().encode("42"));
+
+  const raw = store.get("visit-count");
+  const count = raw ? new TextDecoder().decode(raw) : "0";
+
+  store.delete("visit-count");
+
+  return new Response(`count was: ${count}`);
+});
+
+export default router;
+```
+
+`Kv.openDefault()` opens the store named `"default"`. Use `Kv.open("name")` for a named store.
+
+  </Tab>
+  <Tab title="Python">
+
+```python src/app.py
+from spin_sdk import http
+from spin_sdk.http import Request, Response
+from spin_sdk import key_value
+
+class IncomingHandler(http.IncomingHandler):
+    def handle_request(self, request: Request) -> Response:
+        store = key_value.open_default()
+
+        store.set("visit-count", b"42")
+
+        raw = store.get("visit-count")
+        count = raw.decode() if raw is not None else "0"
+
+        if store.exists("visit-count"):
+            store.delete("visit-count")
+
+        return Response(200, {"content-type": "text/plain"}, bytes(count, "utf-8"))
+```
+
+  </Tab>
+  <Tab title="Go">
+
+```go main.go
+package main
+
+import (
+    "fmt"
+    "net/http"
+
+    spinhttp "github.com/fermyon/spin/sdk/go/v2/http"
+    "github.com/fermyon/spin/sdk/go/v2/kv"
+)
+
+func init() {
+    spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+        store, err := kv.OpenStore("default")
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        defer store.Close()
+
+        if err := store.Set("visit-count", []byte("42")); err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        raw, err := store.Get("visit-count")
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        fmt.Fprintf(w, "count was: %s", string(raw))
+    })
+}
+
+func main() {}
+```
+
+  </Tab>
+</Tabs>
+
+## Custom backends via runtime config
+
+By default, Spin uses a local SQLite file as the backing store. You can change this for any named label by supplying a `runtime-config.toml` file:
+
+```bash
+spin up --runtime-config-file runtime-config.toml
+```
+
+### Redis backend
+
+```toml runtime-config.toml
+[key_value_store.default]
+type = "redis"
+url  = "redis://localhost:6379"
+```
+
+### Azure Cosmos DB backend
+
+```toml runtime-config.toml
+[key_value_store.default]
+type              = "azure_cosmos"
+key               = "your-cosmos-account-key"
+account           = "your-cosmos-account-name"
+database          = "your-database-name"
+container         = "your-container-name"
+```
+
+<Tip>
+  You can configure different backends for different store labels. For example, use the local SQLite default for development and a Redis backend in production by switching the runtime config file.
+</Tip>
+
+## Error variants
+
+The `error` variant returned by store operations covers four cases:
+
+| Error | Cause |
+|---|---|
+| `store-table-full` | Too many stores open simultaneously; close one before retrying. |
+| `no-such-store` | The label passed to `open` is not defined in runtime config. |
+| `access-denied` | The component's `key_value_stores` list does not include this label. |
+| `other(string)` | An implementation-specific error such as a network or I/O failure. |

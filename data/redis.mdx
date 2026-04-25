@@ -1,0 +1,272 @@
+---
+title: "Outbound Redis from Spin components"
+description: "Publish messages, get/set keys, and run commands on Redis from Spin components using the outbound Redis API. Supported in Rust, JS, Python, and Go."
+keywords: ["redis", "outbound redis", "pub/sub", "spin redis", "key-value", "cache", "publish", "subscribe"]
+---
+
+Spin components can make outbound connections to a Redis server to get and set keys, manage sets, increment counters, publish messages to channels, and run arbitrary commands. This is the _outbound_ Redis API—your component initiates the connection to Redis. If you want Redis to trigger your component when a message arrives on a channel, see the [Redis trigger](/building/triggers) documentation instead.
+
+## Enabling outbound Redis
+
+Add the Redis server URL to `allowed_outbound_hosts` in `spin.toml`. Without this entry, Spin blocks all outbound Redis connections:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-app"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "my-app"
+
+[component.my-app]
+source = "target/wasm32-wasip2/release/my_app.wasm"
+allowed_outbound_hosts = ["redis://cache.example.com:6379"]
+```
+
+Use `redis://*:6379` to allow connections to any host on port 6379, or `redis://*:*` to allow any Redis URL.
+
+## WIT interface
+
+The outbound Redis API is defined in `spin:redis@3.0.0`. The `connection` resource provides the full set of operations:
+
+```wit
+resource connection {
+  open:      static async func(address: string) -> result<connection, error>;
+
+  get:       async func(key: string) -> result<option<payload>, error>;
+  set:       async func(key: string, value: payload) -> result<_, error>;
+  incr:      async func(key: string) -> result<s64, error>;
+  del:       async func(keys: list<string>) -> result<u32, error>;
+
+  sadd:      async func(key: string, values: list<string>) -> result<u32, error>;
+  smembers:  async func(key: string) -> result<list<string>, error>;
+  srem:      async func(key: string, values: list<string>) -> result<u32, error>;
+
+  publish:   async func(channel: string, payload: payload) -> result<_, error>;
+
+  execute:   async func(command: string, arguments: list<redis-parameter>)
+               -> result<list<redis-result>, error>;
+}
+```
+
+`payload` is `list<u8>`. `redis-parameter` is either `int64(s64)` or `binary(payload)`. `redis-result` is one of `nil`, `status(string)`, `int64(s64)`, or `binary(payload)`.
+
+## Language examples
+
+<Tabs>
+  <Tab title="Rust">
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response};
+use spin_sdk::http_service;
+use spin_sdk::redis::Connection;
+
+#[http_service]
+async fn handle(_req: Request) -> anyhow::Result<impl IntoResponse> {
+    let addr = "redis://cache.example.com:6379";
+    let conn = Connection::open(addr)?;
+
+    // String operations
+    conn.set("greeting", b"hello")?;
+    let val = conn.get("greeting")?.unwrap_or_default();
+
+    // Counter
+    let count = conn.incr("page-views")?;
+
+    // Delete one or more keys
+    conn.del(&["greeting"])?;
+
+    // Set operations
+    conn.sadd("tags", &["rust", "spin", "wasm"])?;
+    let members = conn.smembers("tags")?;
+    conn.srem("tags", &["rust"])?;
+
+    // Pub/Sub
+    conn.publish("events", b"user-signed-in")?;
+
+    // Arbitrary command
+    let result = conn.execute("PING", &[])?;
+
+    Ok(Response::builder()
+        .status(200)
+        .body(format!(
+            "val={}, views={}, tags={:?}, ping={:?}",
+            String::from_utf8(val)?,
+            count,
+            members,
+            result,
+        ))
+        .build())
+}
+```
+
+  </Tab>
+  <Tab title="JavaScript / TypeScript">
+
+```typescript src/index.ts
+import { AutoRouter } from "itty-router";
+import { Redis } from "@fermyon/spin-sdk";
+
+const router = AutoRouter();
+
+router.get("/", async () => {
+  const addr = "redis://cache.example.com:6379";
+  const conn = Redis.open(addr);
+
+  conn.set("greeting", new TextEncoder().encode("hello"));
+
+  const raw = conn.get("greeting");
+  const val = raw ? new TextDecoder().decode(raw) : "";
+
+  const count = conn.incr("page-views");
+
+  conn.del(["greeting"]);
+
+  conn.sadd("tags", ["rust", "spin", "wasm"]);
+  const members = conn.smembers("tags");
+
+  conn.publish("events", new TextEncoder().encode("user-signed-in"));
+
+  return new Response(
+    `val=${val}, views=${count}, tags=${JSON.stringify(members)}`
+  );
+});
+
+export default router;
+```
+
+  </Tab>
+  <Tab title="Python">
+
+```python src/app.py
+from spin_sdk import http, redis
+from spin_sdk.http import Request, Response
+
+class IncomingHandler(http.IncomingHandler):
+    def handle_request(self, request: Request) -> Response:
+        addr = "redis://cache.example.com:6379"
+        conn = redis.open(addr)
+
+        conn.set("greeting", b"hello")
+        val = conn.get("greeting") or b""
+
+        count = conn.incr("page-views")
+
+        conn.del_(["greeting"])
+
+        conn.sadd("tags", ["rust", "spin", "wasm"])
+        members = conn.smembers("tags")
+
+        conn.publish("events", b"user-signed-in")
+
+        body = f"val={val.decode()}, views={count}, tags={members}"
+        return Response(200, {"content-type": "text/plain"}, body.encode())
+```
+
+  </Tab>
+  <Tab title="Go">
+
+```go main.go
+package main
+
+import (
+    "fmt"
+    "net/http"
+
+    spinhttp "github.com/fermyon/spin/sdk/go/v2/http"
+    "github.com/fermyon/spin/sdk/go/v2/redis"
+)
+
+func init() {
+    spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+        addr := "redis://cache.example.com:6379"
+        conn, err := redis.Open(addr)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        if err := conn.Set("greeting", []byte("hello")); err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        val, err := conn.Get("greeting")
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        count, err := conn.Incr("page-views")
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        conn.Del([]string{"greeting"})
+
+        conn.Sadd("tags", []string{"rust", "spin", "wasm"})
+        members, _ := conn.Smembers("tags")
+
+        conn.Publish("events", []byte("user-signed-in"))
+
+        fmt.Fprintf(w, "val=%s, views=%d, tags=%v", string(val), count, members)
+    })
+}
+
+func main() {}
+```
+
+  </Tab>
+</Tabs>
+
+## Running arbitrary commands
+
+Use `execute` when you need a Redis command that isn't covered by the named methods. Arguments are typed as `redis-parameter` (either `int64` or `binary`); results come back as a list of `redis-result` variants:
+
+```rust src/lib.rs
+use spin_sdk::redis::{Connection, RedisParameter, RedisResult};
+
+let conn = Connection::open("redis://cache.example.com:6379")?;
+
+// EXPIRE greeting 60
+let result = conn.execute(
+    "EXPIRE",
+    &[
+        RedisParameter::Binary(b"greeting".to_vec()),
+        RedisParameter::Int64(60),
+    ],
+)?;
+
+// result is Vec<RedisResult>: Nil | Status(String) | Int64(i64) | Binary(Vec<u8>)
+match result.first() {
+    Some(RedisResult::Int64(1)) => println!("TTL set"),
+    Some(RedisResult::Int64(0)) => println!("Key does not exist"),
+    _ => println!("unexpected result"),
+}
+```
+
+<Warning>
+  `execute` does not support commands that use the Redis streaming/pub-sub protocol (such as `SUBSCRIBE` or `BLPOP`). These require a persistent listening connection, which Spin's outbound model does not provide. Use the [Redis trigger](/building/triggers) for inbound message handling instead.
+</Warning>
+
+## Error variants
+
+| Error | Cause |
+|---|---|
+| `invalid-address` | The URL is malformed or not permitted by `allowed_outbound_hosts`. |
+| `too-many-connections` | The component has opened more connections than the runtime allows. |
+| `type-error` | A retrieved value was not of the expected type (e.g. calling `incr` on a non-integer key). |
+| `other(string)` | An unclassified error such as a network failure. |
+
+## Outbound vs. inbound Redis
+
+| | Outbound Redis (this page) | Redis trigger |
+|---|---|---|
+| Direction | Component → Redis | Redis → Component |
+| Configuration | `allowed_outbound_hosts` | `[[trigger.redis]]` with `channel` |
+| Use case | Caching, pub/sub publishing, counters | Reacting to published messages |
+| Connection | Created inside your handler on demand | Managed by Spin at startup |

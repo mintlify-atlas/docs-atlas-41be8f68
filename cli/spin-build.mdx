@@ -1,0 +1,79 @@
+---
+title: "spin build — compile Spin app components to Wasm"
+description: "spin build compiles each Spin component to WebAssembly by running its configured build command. Supports per-component builds and --up to run immediately."
+---
+
+`spin build` compiles every component in your Spin application to WebAssembly by running the `command` defined in each component's `[component.NAME.build]` section of `spin.toml`. It respects the source language toolchain — Rust components run `cargo build`, Go components run `tinygo build`, and so on.
+
+## Usage
+
+```bash
+spin build [OPTIONS] [-- ARGS]
+```
+
+## Flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--from <FILE>` | `-f` | Path to `spin.toml` (default: `spin.toml` in current directory) |
+| `--component-id <ID>` | `-c` | Build only this component ID (can be specified multiple times) |
+| `--profile <PROFILE>` | | Build profile to use (default: anonymous/release profile) |
+| `--up` | `-u` | Run `spin up` after a successful build |
+| `--skip-target-checks` | | Skip deployment target compatibility checks |
+| `--skip-generate-wits` | | Skip auto-generating WIT files for component dependencies |
+
+## Examples
+
+Build all components in the current directory:
+
+```bash
+spin build
+```
+
+Build only one component:
+
+```bash
+spin build -c my-api
+```
+
+Build and immediately run:
+
+```bash
+spin build --up
+```
+
+Build from a specific manifest:
+
+```bash
+spin build -f path/to/spin.toml
+```
+
+## Build configuration in spin.toml
+
+Each component defines its build command in `spin.toml`:
+
+```toml spin.toml
+[component.hello-rust.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "."
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+| Field | Description |
+|---|---|
+| `command` | Shell command to run to build the component |
+| `workdir` | Directory to run the command in (relative to `spin.toml`) |
+| `watch` | Glob patterns of files to watch with `spin watch` |
+
+<Note>
+`spin build` runs each component's build command sequentially in the order they appear in `spin.toml`. If any command exits with a non-zero status, the build stops and reports an error.
+</Note>
+
+## Passing environment variables
+
+Environment variables present in the shell are available to build commands. You can also set them per-component in the `[component.NAME.build]` section:
+
+```toml spin.toml
+[component.hello-rust.build]
+command = "cargo build --target wasm32-wasip2 --release"
+```

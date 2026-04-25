@@ -1,0 +1,228 @@
+---
+title: "Spin components: WebAssembly building blocks"
+description: "Understand Spin components: how Wasm modules are defined, composed, isolated, and built to handle HTTP or Redis triggers in your application."
+keywords: ["spin component", "wasm component", "component model", "allowed outbound hosts", "spin build", "files mount"]
+---
+
+A Spin component is a WebAssembly module that implements a trigger's handler interface. When a trigger fires—an HTTP request arrives or a Redis message is published—Spin instantiates the matching component, calls its handler export, and then discards the instance. Each invocation gets a fresh, isolated environment with no shared state between calls unless the component explicitly uses a persistent store such as key-value or SQLite.
+
+## Defining a component in spin.toml
+
+Components are declared in `[component.NAME]` tables, where `NAME` is a kebab-case identifier that a trigger's `component` field references:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-app"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "my-app"
+
+[component.my-app]
+source = "target/wasm32-wasip2/release/my_app.wasm"
+allowed_outbound_hosts = []
+[component.my-app.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+## Component source
+
+The `source` field identifies the Wasm binary. Spin supports three forms:
+
+<Tabs>
+  <Tab title="Local path">
+
+```toml
+[component.my-app]
+source = "target/wasm32-wasip2/release/my_app.wasm"
+```
+
+Paths are relative to the `spin.toml` file. This is the most common form during development.
+
+  </Tab>
+  <Tab title="Remote URL">
+
+```toml
+[component.my-app]
+source = { url = "https://example.com/my-app.wasm", digest = "sha256:6503...2375" }
+```
+
+Spin downloads the binary at startup and verifies the SHA-256 digest before execution. The `digest` field is required and must start with `sha256:`.
+
+  </Tab>
+  <Tab title="OCI registry">
+
+```toml
+[component.my-app]
+source = { registry = "ghcr.io", package = "my-org:my-app", version = "1.2.0" }
+```
+
+Spin fetches the component from a Wasm component registry. Omit `registry` to use the configured default registry.
+
+  </Tab>
+</Tabs>
+
+## Build configuration
+
+The `[component.NAME.build]` sub-table tells `spin build` how to compile the Wasm binary from source:
+
+```toml
+[component.my-app.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "."
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+<ParamField path="build.command" type="string | string[]" required>
+  The shell command to run. Provide an array to chain commands that must run in order:
+
+  ```toml
+  command = ["npm install", "npm run build"]
+  ```
+</ParamField>
+
+<ParamField path="build.workdir" type="string">
+  Directory to use as the working directory for the build command. Defaults to the directory containing `spin.toml`. Useful for monorepo layouts where each component lives in its own subdirectory.
+
+  ```toml
+  workdir = "components/api"
+  ```
+</ParamField>
+
+<ParamField path="build.watch" type="string[]" default="[]">
+  Glob patterns for source files. `spin watch` rebuilds and restarts the application whenever a matching file changes.
+</ParamField>
+
+Running `spin build` executes each component's build command in sequence:
+
+```bash
+$ spin build
+Building component my-app with `cargo build --target wasm32-wasip2 --release`
+Finished building all Spin components
+```
+
+## Allowed outbound hosts
+
+By default a component cannot make any outbound network connections. The `allowed_outbound_hosts` field is an explicit allowlist:
+
+```toml
+[component.my-app]
+source = "..."
+allowed_outbound_hosts = [
+  "https://api.example.com",
+  "redis://cache.internal:6379",
+  "https://*.cdn.example.com",
+  "*://localhost:*"
+]
+```
+
+Each entry is a `scheme://host[:port]` pattern where `*` is a wildcard. Wildcard rules:
+
+- `https://*` — HTTPS to any host on the default port (443)
+- `https://*.example.com` — HTTPS to any subdomain of example.com
+- `*://localhost:*` — any scheme and port on localhost
+
+<Warning>
+  Granting `*://*:*` allows unrestricted outbound access. Prefer the narrowest allowlist that your component actually needs.
+</Warning>
+
+## Mounting files
+
+Components can access static files via the WASI filesystem. The `files` field lists glob patterns or explicit source-to-destination mounts:
+
+```toml
+[component.static-server]
+source = "..."
+files = [
+  "assets/**/*.html",
+  "assets/**/*.css",
+  { source = "public", destination = "/" }
+]
+```
+
+A glob pattern makes matching files available at the same relative path. A `{ source, destination }` pair mounts a host directory at a specific path inside the guest filesystem.
+
+Use `exclude_files` to omit sensitive files that would otherwise match a glob:
+
+```toml
+files = ["config/**"]
+exclude_files = ["config/secrets.toml"]
+```
+
+## Environment variables
+
+Static environment variables can be passed directly to the component:
+
+```toml
+[component.my-app.environment]
+LOG_LEVEL = "info"
+DB_HOST = "db.internal"
+```
+
+For secrets and runtime-configurable values, use the `variables` system instead.
+
+## Multiple components in one application
+
+A single `spin.toml` can define as many components as needed. Each component has its own source binary, permissions, and build steps:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "shop"
+version = "1.0.0"
+
+[[trigger.http]]
+route = "/api/..."
+component = "api"
+
+[[trigger.http]]
+route = "/static/..."
+component = "frontend"
+
+[component.api]
+source = "api/target/wasm32-wasip2/release/api.wasm"
+allowed_outbound_hosts = ["https://payments.example.com"]
+key_value_stores = ["default"]
+sqlite_databases = ["default"]
+[component.api.build]
+command = "cargo build --target wasm32-wasip2 --release"
+workdir = "api"
+
+[component.frontend]
+source = "frontend/target/wasm32-wasip2/release/frontend.wasm"
+files = [{ source = "frontend/dist", destination = "/" }]
+[component.frontend.build]
+command = ["npm install", "npm run build"]
+workdir = "frontend"
+watch = ["frontend/src/**", "frontend/package.json"]
+```
+
+## Component isolation guarantees
+
+Each component invocation is isolated from every other:
+
+- **No shared linear memory** — components cannot read or write each other's Wasm memory.
+- **No shared filesystem** — only files explicitly listed in `files` are visible.
+- **Network allowlist enforced** — outbound connections outside `allowed_outbound_hosts` are refused at the host level.
+- **Fresh instance per request** — Spin creates a new component instance for each trigger invocation and discards it after the handler returns. No global mutable state survives across calls.
+
+<Note>
+  To share state across invocations or components, use a named key-value store, SQLite database, or Redis—all of which are explicitly declared in the manifest and subject to the same per-component permission model.
+</Note>
+
+## Component dependencies (Wasm Component Model)
+
+Spin supports the Wasm Component Model's import/export system. A component can declare dependencies on other Wasm components published to a registry:
+
+```toml
+[component.my-app.dependencies]
+"my-org:auth/verify" = "^1.0.0"
+"my-org:db/query" = { path = "deps/db.wasm" }
+```
+
+Spin composes dependencies into the component binary at startup. Dependency permissions are isolated from the parent by default; set `dependencies_inherit_configuration = true` to grant the same permissions to all dependencies.

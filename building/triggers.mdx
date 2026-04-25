@@ -1,0 +1,253 @@
+---
+title: "Spin triggers: HTTP and Redis event sources"
+description: "Configure HTTP and Redis triggers in Spin to route incoming HTTP requests or Redis Pub/Sub messages to the right WebAssembly component."
+keywords: ["http trigger", "redis trigger", "spin triggers", "route", "channel", "event source"]
+---
+
+Triggers are the entry points of a Spin application. They listen for external events—an HTTP request on a configured route, or a message published to a Redis channel—and invoke the matching WebAssembly component to handle that event. Each `spin.toml` manifest can declare multiple trigger entries, even mixing HTTP and Redis triggers in the same application.
+
+<Tabs>
+  <Tab title="HTTP trigger">
+
+## HTTP trigger
+
+The HTTP trigger starts an HTTP server and routes incoming requests to components based on path patterns. Spin listens on `127.0.0.1:3000` by default; pass `--listen <addr>` to `spin up` or set `SPIN_HTTP_LISTEN_ADDR` to override.
+
+### Route configuration
+
+Each `[[trigger.http]]` entry requires a `route` and a `component`:
+
+```toml spin.toml
+[[trigger.http]]
+route = "/hello"
+component = "hello-handler"
+```
+
+**Exact routes** match only the specified path. **Wildcard routes** use the `/...` suffix to match the prefix and any path beneath it:
+
+```toml spin.toml
+# Exact: only handles GET /hello
+[[trigger.http]]
+route = "/hello"
+component = "hello"
+
+# Wildcard: handles /api/, /api/users, /api/orders/123, etc.
+[[trigger.http]]
+route = "/api/..."
+component = "api"
+```
+
+When multiple routes could match a request, Spin selects the most specific one—an exact match beats a wildcard prefix.
+
+### Full HTTP trigger example
+
+This is the `spin.toml` produced by the `http-rust` template:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-http-app"
+version = "0.1.0"
+authors = ["you@example.com"]
+description = "HTTP request handler using Rust"
+
+[[trigger.http]]
+route = "/..."
+component = "my-http-app"
+
+[component.my-http-app]
+source = "target/wasm32-wasip2/release/my_http_app.wasm"
+allowed_outbound_hosts = []
+[component.my-http-app.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+### HTTP trigger fields
+
+<ParamField path="route" type="string" required>
+  URL path pattern. Use an exact path like `/hello` or a wildcard like `/api/...` (trailing `/...` matches any sub-path).
+</ParamField>
+
+<ParamField path="component" type="string" required>
+  ID of the component that handles requests on this route. Must match a `[component.NAME]` key in the manifest.
+</ParamField>
+
+### WIT interface
+
+HTTP components implement the `wasi:http/incoming-handler` interface (WASIp2) or `fermyon:spin/inbound-http` (legacy). The Spin SDK for each language generates the correct bindings automatically when you use a template.
+
+A Rust HTTP handler using the WASI HTTP interface looks like this:
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response};
+use spin_sdk::http_service;
+
+#[http_service]
+async fn handle_request(req: Request) -> anyhow::Result<impl IntoResponse> {
+    Ok(Response::builder()
+        .status(200)
+        .header("content-type", "text/plain")
+        .body("Hello, Spin!")
+        .build())
+}
+```
+
+### TLS / HTTPS
+
+Pass certificate and key files to `spin up` to enable HTTPS:
+
+```bash
+spin up \
+  --tls-cert cert.pem \
+  --tls-key key.pem \
+  --listen 0.0.0.0:443
+```
+
+Alternatively set the `SPIN_TLS_CERT` and `SPIN_TLS_KEY` environment variables.
+
+  </Tab>
+  <Tab title="Redis trigger">
+
+## Redis trigger
+
+The Redis trigger subscribes to one or more Redis Pub/Sub channels and invokes a component whenever a message is published to a subscribed channel.
+
+### Address configuration
+
+Set a default Redis server address for the entire application using the `[application.trigger.redis]` table. Individual `[[trigger.redis]]` entries can override this with their own `address` field.
+
+```toml spin.toml
+[application.trigger.redis]
+address = "redis://localhost:6379"
+```
+
+The address value can reference application variables using `{{ var_name }}` syntax, enabling runtime configuration:
+
+```toml spin.toml
+[variables]
+redis_url = { required = true }
+
+[application.trigger.redis]
+address = "{{ redis_url }}"
+```
+
+### Full Redis trigger example
+
+This is the `spin.toml` produced by the `redis-rust` template:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-redis-app"
+version = "0.1.0"
+authors = ["you@example.com"]
+description = "Redis message handler using Rust"
+
+[application.trigger.redis]
+address = "redis://localhost:6379"
+
+[[trigger.redis]]
+channel = "orders"
+component = "my-redis-app"
+
+[component.my-redis-app]
+source = "target/wasm32-wasip2/release/my_redis_app.wasm"
+allowed_outbound_hosts = []
+[component.my-redis-app.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+### Redis trigger fields
+
+<ParamField path="channel" type="string" required>
+  The Redis Pub/Sub channel to subscribe to. Supports application variable references with `{{ var_name }}`.
+</ParamField>
+
+<ParamField path="component" type="string" required>
+  ID of the component that handles messages arriving on this channel.
+</ParamField>
+
+<ParamField path="address" type="string">
+  Per-trigger Redis URL (e.g. `redis://myredis.example.com:6379`). When present, this overrides the application-level `[application.trigger.redis] address` for this specific trigger only. Supports `{{ var_name }}` references.
+</ParamField>
+
+### Multiple channels
+
+Declare one `[[trigger.redis]]` entry per channel. Different channels can use the same component or different ones:
+
+```toml spin.toml
+[application.trigger.redis]
+address = "redis://localhost:6379"
+
+[[trigger.redis]]
+channel = "orders"
+component = "order-processor"
+
+[[trigger.redis]]
+channel = "notifications"
+component = "notifier"
+```
+
+### WIT interface
+
+Redis components export `fermyon:spin/inbound-redis` (legacy) or `spin:redis/inbound-redis`. A Rust Redis handler looks like this:
+
+```rust src/lib.rs
+use anyhow::Result;
+use spin_sdk::redis_subscriber;
+use std::str::from_utf8;
+
+#[redis_subscriber]
+async fn on_message(message: Vec<u8>) -> Result<()> {
+    println!("{}", from_utf8(&message)?);
+    Ok(())
+}
+```
+
+<Note>
+  Unlike the HTTP trigger, the Redis trigger does not start an HTTP server. Run your application with `spin up` and Spin will connect to Redis and block, processing messages as they arrive.
+</Note>
+
+  </Tab>
+</Tabs>
+
+## Combining trigger types
+
+A single application can mix HTTP and Redis triggers. Each trigger type operates independently:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "multi-trigger-app"
+version = "0.1.0"
+
+[application.trigger.redis]
+address = "redis://localhost:6379"
+
+# HTTP endpoint to enqueue work
+[[trigger.http]]
+route = "/enqueue"
+component = "enqueuer"
+
+# Redis consumer to process work
+[[trigger.redis]]
+channel = "work-queue"
+component = "processor"
+
+[component.enqueuer]
+source = "enqueuer/target/wasm32-wasip2/release/enqueuer.wasm"
+allowed_outbound_hosts = ["redis://localhost:6379"]
+
+[component.processor]
+source = "processor/target/wasm32-wasip2/release/processor.wasm"
+allowed_outbound_hosts = ["https://api.example.com"]
+```
+
+<Tip>
+  When the enqueuer component publishes to the `work-queue` channel, Spin's Redis trigger immediately invokes the processor component in the same process—no separate worker process needed.
+</Tip>

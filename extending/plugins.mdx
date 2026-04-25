@@ -1,0 +1,199 @@
+---
+title: "Extending Spin with plugins"
+description: "Install, manage, and create Spin plugins to add new commands and capabilities. Browse the official plugin catalog or install from any URL or local path."
+keywords: ["spin plugins", "plugin catalog", "spin plugins install", "spin plugins upgrade", "plugin manifest", "js2wasm", "spin-cloud"]
+---
+
+Spin plugins are standalone binaries that add new `spin <plugin-name>` subcommands to the CLI. Because plugins are plain executables distributed as tarballs, you can write them in any language, distribute them anywhere, and install them without rebuilding Spin itself. The official plugin catalog is hosted at [github.com/spinframework/spin-plugins](https://github.com/spinframework/spin-plugins/).
+
+## Install from the catalog
+
+The plugin catalog is a Git repository. Run `spin plugins update` to pull the latest manifest list before installing:
+
+```bash
+spin plugins update
+spin plugins install <name>
+```
+
+To install a specific version, pass `--version`:
+
+```bash
+spin plugins install js2wasm --version 0.10.0
+```
+
+Spin checks that the plugin is compatible with your current Spin version and asks for confirmation before installing. Pass `-y` to skip the prompt:
+
+```bash
+spin plugins install js2wasm -y
+```
+
+## Install from a URL or local file
+
+You can install a plugin directly from a remote manifest URL or a manifest file on disk without going through the catalog.
+
+<Tabs>
+  <Tab title="Remote URL">
+
+```bash
+spin plugins install --url https://example.com/my-plugin/my-plugin.json
+```
+
+  </Tab>
+  <Tab title="Local file">
+
+```bash
+spin plugins install --file ./my-plugin.json
+```
+
+  </Tab>
+</Tabs>
+
+Both forms require a valid JSON manifest that points to the plugin binary tarball. Spin downloads, verifies the SHA-256 checksum, unpacks, and installs the binary automatically.
+
+## List and search plugins
+
+| Command | What it does |
+|---|---|
+| `spin plugins list` | Show all plugins available in the catalog |
+| `spin plugins list --installed` | Show only installed plugins |
+| `spin plugins search <term>` | Search catalog by name |
+| `spin plugins show <name>` | Print details about a specific plugin |
+
+## Upgrade plugins
+
+```bash
+# Upgrade a single plugin
+spin plugins upgrade <name>
+
+# Upgrade all installed plugins to the latest compatible version
+spin plugins upgrade --all
+```
+
+Run `spin plugins update` first to refresh the catalog before upgrading.
+
+## Remove a plugin
+
+```bash
+spin plugins remove <name>
+```
+
+The alias `spin plugins rm` also works.
+
+## Compatibility checks
+
+Each plugin manifest declares a `spinCompatibility` semver range. If the plugin is not compatible with your Spin version, installation is blocked. You can override this check with `--override-compatibility-check`, but doing so may cause unexpected behavior:
+
+```bash
+spin plugins install some-plugin --override-compatibility-check
+```
+
+## Notable plugins
+
+<AccordionGroup>
+  <Accordion title="spin-cloud — Fermyon Cloud deployment">
+    Adds `spin cloud` subcommands including `spin deploy`, `spin cloud login`, and `spin cloud variables`. Required for deploying to Fermyon Cloud.
+
+    ```bash
+    spin plugins install cloud -y
+    spin cloud deploy
+    ```
+  </Accordion>
+  <Accordion title="js2wasm — JavaScript bundler">
+    Compiles JavaScript and TypeScript Spin components to WebAssembly. Called automatically by `spin build` when you use the JavaScript or TypeScript templates.
+
+    ```bash
+    spin plugins install js2wasm -y
+    ```
+  </Accordion>
+  <Accordion title="pluginify — plugin packaging helper">
+    Generates and optionally installs a plugin manifest from a `spin-pluginify.toml` config file. Useful when developing your own plugins.
+
+    ```bash
+    spin plugins install pluginify -y
+    spin pluginify --install
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Plugin manifest format
+
+A plugin manifest is a JSON file that tells Spin where to download the binary and which platforms it supports. Spin uses this file during installation and version resolution.
+
+```json trigger-my-plugin.json
+{
+  "name": "my-plugin",
+  "description": "A short description of what the plugin does",
+  "homepage": "https://github.com/example/my-plugin",
+  "version": "0.1.0",
+  "spinCompatibility": ">=2.0",
+  "license": "Apache-2.0",
+  "packages": [
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "url": "https://github.com/example/my-plugin/releases/download/v0.1.0/my-plugin-linux-amd64.tar.gz",
+      "sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+    },
+    {
+      "os": "macos",
+      "arch": "aarch64",
+      "url": "https://github.com/example/my-plugin/releases/download/v0.1.0/my-plugin-macos-arm64.tar.gz",
+      "sha256": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+    },
+    {
+      "os": "windows",
+      "arch": "amd64",
+      "url": "https://github.com/example/my-plugin/releases/download/v0.1.0/my-plugin-windows-amd64.tar.gz",
+      "sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Plugin name, used as the `spin <name>` subcommand |
+| `version` | string | Semver version string |
+| `spinCompatibility` | string | Semver range of compatible Spin versions (e.g. `>=2.0`) |
+| `license` | string | SPDX license identifier |
+| `packages` | array | One entry per supported OS/architecture combination |
+| `packages[].os` | string | `linux`, `macos`, or `windows` |
+| `packages[].arch` | string | `amd64`, `aarch64`, or `arm` |
+| `packages[].url` | string | URL to the `.tar.gz` containing the plugin binary |
+| `packages[].sha256` | string | Hex-encoded SHA-256 of the tarball |
+
+## Creating a plugin
+
+<Steps>
+  <Step title="Write the binary">
+    Build an executable that implements your subcommand. Spin invokes it directly when a user runs `spin <plugin-name>`, forwarding any additional arguments. The binary can be written in any language.
+  </Step>
+  <Step title="Package as a tarball">
+    Archive the binary in a `.tar.gz` file. Compute its SHA-256 checksum:
+
+    ```bash
+    tar czvf my-plugin.tar.gz my-plugin
+    shasum -a 256 my-plugin.tar.gz
+    ```
+  </Step>
+  <Step title="Write the manifest">
+    Create a JSON manifest following the format above. Set `spinCompatibility` to the earliest Spin version your plugin supports and add one entry per platform in `packages`.
+  </Step>
+  <Step title="Test locally">
+    Install from the local manifest to verify everything works end to end:
+
+    ```bash
+    spin plugins install --file ./my-plugin.json --yes
+    spin my-plugin
+    ```
+  </Step>
+  <Step title="Publish">
+    Host the tarball somewhere publicly accessible (e.g. a GitHub release) and update the `url` fields in the manifest. To add your plugin to the official catalog, open a pull request against [spinframework/spin-plugins](https://github.com/spinframework/spin-plugins/).
+
+    Alternatively, use the `pluginify` plugin to generate and publish the manifest automatically from a `spin-pluginify.toml` config file.
+  </Step>
+</Steps>
+
+<Tip>
+  Plugin names must not conflict with Spin's built-in subcommands: `template`, `templates`, `up`, `new`, `add`, `login`, `deploy`, `build`, `plugin`, `plugins`, `trigger`, `external`, `doctor`, `registry`, `watch`, and `oci`.
+</Tip>

@@ -1,0 +1,156 @@
+---
+title: "Running Spin apps locally with spin up"
+description: "Use spin up to run Spin applications on your local machine. Configure ports, environment variables, and runtime options for local development."
+---
+
+`spin up` starts the Spin runtime and serves your application locally. By default it looks for a `spin.toml` manifest in the current directory and listens on `127.0.0.1:3000`. You can point it at a different manifest, a remote OCI reference, or a `.wasm` file, and customize the network address, environment variables, and runtime configuration through flags.
+
+## Basic usage
+
+```bash
+# Run the app in the current directory
+spin up
+
+# Run a specific manifest
+spin up -f path/to/spin.toml
+
+# Run from an OCI registry reference
+spin up -f ghcr.io/org/myapp:v1.0.0
+```
+
+## Key flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--from <SOURCE>` | `-f` | Manifest file, directory, OCI reference, or `.wasm` path. Defaults to `spin.toml`. |
+| `--listen <ADDR>` | | Network address and port to listen on. Defaults to `127.0.0.1:3000`. |
+| `--env <KEY=VALUE>` | `-e` | Pass an environment variable to all components. Repeatable. |
+| `--runtime-config-file <FILE>` | | Path to a runtime config TOML file. |
+| `--build` | | Run `spin build` before starting the app. |
+| `--insecure` | `-k` | Ignore TLS certificate errors when pulling from a registry. |
+| `--direct-mounts` | | Mount local asset directories directly (no temp copy). Useful for live asset editing. |
+
+### Changing the listen address
+
+```bash
+# Listen on all interfaces at port 8080
+spin up --listen 0.0.0.0:8080
+```
+
+### Passing environment variables
+
+```bash
+spin up -e DB_URL=postgres://localhost/mydb -e LOG_LEVEL=debug
+```
+
+### Pointing to a runtime config file
+
+```bash
+spin up --runtime-config-file runtime-config.toml
+```
+
+## Running from an OCI reference
+
+Spin can pull and run an application directly from any OCI-compatible registry without a local `spin.toml`. Credentials are read from the Docker credential store or from a prior `spin registry login`.
+
+```bash
+spin up -f ghcr.io/org/myapp:latest
+```
+
+<Tip>
+Add `--insecure` (`-k`) if you are pulling from a registry that uses a self-signed certificate or does not enforce TLS.
+</Tip>
+
+## Hot-reload development with spin watch
+
+`spin watch` rebuilds and restarts your application automatically whenever source files change. It is the recommended workflow during active development because it removes the manual build-and-restart cycle.
+
+```bash
+# Watch, build on change, and restart
+spin watch
+
+# Watch a specific manifest
+spin watch -f path/to/spin.toml
+
+# Skip the build step — only restart when compiled artifacts change
+spin watch --skip-build
+```
+
+Additional `spin watch` flags:
+
+| Flag | Short | Description |
+|---|---|---|
+| `--skip-build` | | Restart on artifact changes only; do not rebuild source. |
+| `--clear` | `-c` | Clear the terminal before each restart. |
+| `--debounce <MS>` | `-d` | Milliseconds to wait after a detected change before rebuilding. Default: `100`. |
+
+<Note>
+`spin watch` passes any extra arguments through to `spin up`, so flags like `--listen` and `--env` work as normal.
+</Note>
+
+## Runtime config file
+
+A `runtime-config.toml` file lets you configure Spin factors — key-value stores, SQLite databases, secret providers, and more — without changing application code.
+
+```toml
+# runtime-config.toml example
+[key_value_store.default]
+type = "redis"
+url = "redis://localhost:6379"
+```
+
+Pass the file to `spin up`:
+
+```bash
+spin up --runtime-config-file runtime-config.toml
+```
+
+## Log output
+
+Spin writes component stdio to `.spin/logs/` in the current directory. Each component gets its own log file named after the component ID.
+
+```bash
+# Tail logs for a component named "api"
+tail -f .spin/logs/api_stdout.txt
+```
+
+## Typical local development workflow
+
+<Steps>
+  <Step title="Create and build your app">
+    ```bash
+    spin new -t http-rust hello-world
+    cd hello-world
+    spin build
+    ```
+  </Step>
+  <Step title="Start the app">
+    ```bash
+    spin up
+    ```
+
+    Spin prints the address it is listening on:
+
+    ```
+    Logging component stdio to ".spin/logs/"
+
+    Serving http://127.0.0.1:3000
+    Available Routes:
+      hello-world: http://127.0.0.1:3000 (wildcard)
+    ```
+  </Step>
+  <Step title="Test the endpoint">
+    ```bash
+    curl http://127.0.0.1:3000
+    ```
+  </Step>
+  <Step title="Switch to watch mode for iterating">
+    Stop `spin up` and run:
+
+    ```bash
+    spin watch
+    ```
+
+    Edit source files and Spin rebuilds and restarts automatically on each save.
+  </Step>
+</Steps>

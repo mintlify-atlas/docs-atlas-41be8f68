@@ -1,0 +1,150 @@
+---
+title: "Serverless AI inference in Spin components"
+description: "Run LLM text inference and generate sentence embeddings from Spin components using the built-in Serverless AI API. Supported in Rust, JS, Python, and Go."
+---
+
+Spin's Serverless AI API lets your components call large language models and compute text embeddings without managing any inference infrastructure. You declare which models a component needs in `spin.toml`, and Spin handles the rest — whether running locally with a bundled engine or via a remote provider on Fermyon Cloud.
+
+## Configure your component
+
+Add the models your component will use to the `ai_models` field in `spin.toml`:
+
+```toml spin.toml
+[component.my-component]
+source = "target/wasm32-wasip2/release/my_component.wasm"
+ai_models = ["llama2-chat"]
+```
+
+Available model identifiers:
+
+| Model ID | Type | Description |
+|---|---|---|
+| `llama2-chat` | Text inference | Meta Llama 2 Chat, 7B parameters |
+| `codellama-instruct` | Code inference | Code Llama Instruct, 13B parameters |
+| `all-minilm-l6-v2` | Embeddings | Sentence-BERT all-MiniLM-L6-v2 |
+
+<Note>
+Local LLM inference requires the Spin build to include the `llm` feature and the model files to be present. On Fermyon Cloud, inference is handled remotely and available without extra setup.
+</Note>
+
+## Text inference
+
+The `infer` function takes a model name, a prompt string, and optional parameters. It returns the generated text and token usage statistics.
+
+<Tabs>
+  <Tab title="Rust">
+```rust
+use spin_sdk::llm;
+
+let result = llm::infer(
+    llm::InferencingModel::Llama2Chat,
+    "What is WebAssembly? Answer in one sentence.",
+)?;
+println!("Response: {}", result.text);
+println!("Tokens used: {}", result.usage.generated_token_count);
+```
+  </Tab>
+  <Tab title="JavaScript">
+```javascript
+import { Llm } from "@fermyon/spin-sdk";
+
+const result = Llm.infer("llama2-chat", "What is WebAssembly? Answer in one sentence.");
+console.log(result.text);
+```
+  </Tab>
+  <Tab title="Python">
+```python
+from spin_sdk import llm
+
+result = llm.infer("llama2-chat", "What is WebAssembly? Answer in one sentence.")
+print(result.text)
+```
+  </Tab>
+</Tabs>
+
+## Inference parameters
+
+Pass an `InferencingParams` struct (or equivalent object) to control generation behavior:
+
+<Tabs>
+  <Tab title="Rust">
+```rust
+use spin_sdk::llm;
+
+let params = llm::InferencingParams {
+    max_tokens: 256,
+    temperature: 0.7,
+    top_k: 50,
+    top_p: 0.9,
+    repeat_penalty: 1.1,
+    repeat_penalty_last_n_token_count: 64,
+};
+
+let result = llm::infer_with_options(
+    llm::InferencingModel::Llama2Chat,
+    "Explain the WebAssembly component model.",
+    params,
+)?;
+```
+  </Tab>
+  <Tab title="JavaScript">
+```javascript
+import { Llm } from "@fermyon/spin-sdk";
+
+const result = Llm.infer("llama2-chat", "Explain the WebAssembly component model.", {
+  maxTokens: 256,
+  temperature: 0.7,
+  topK: 50,
+  topP: 0.9,
+  repeatPenalty: 1.1,
+  repeatPenaltyLastNTokenCount: 64,
+});
+```
+  </Tab>
+</Tabs>
+
+| Parameter | Type | Description |
+|---|---|---|
+| `max_tokens` | `u32` | Maximum tokens to generate |
+| `temperature` | `f32` | Sampling randomness (0.0–1.0) |
+| `top_k` | `u32` | Top-K candidates to sample from |
+| `top_p` | `f32` | Nucleus sampling probability threshold |
+| `repeat_penalty` | `f32` | Penalty for repeating tokens |
+| `repeat_penalty_last_n_token_count` | `u32` | Window size for repeat penalty |
+
+## Generating embeddings
+
+The `generate_embeddings` function encodes a list of strings into floating-point vectors, useful for semantic search and similarity comparisons.
+
+<Tabs>
+  <Tab title="Rust">
+```rust
+use spin_sdk::llm;
+
+let result = llm::generate_embeddings(
+    llm::EmbeddingModel::AllMiniLmL6V2,
+    &["WebAssembly is fast", "Spin runs Wasm serverlessly"],
+)?;
+
+for embedding in &result.embeddings {
+    println!("Vector length: {}", embedding.len());
+}
+println!("Prompt tokens: {}", result.usage.prompt_token_count);
+```
+  </Tab>
+  <Tab title="JavaScript">
+```javascript
+import { Llm } from "@fermyon/spin-sdk";
+
+const result = Llm.generateEmbeddings("all-minilm-l6-v2", [
+  "WebAssembly is fast",
+  "Spin runs Wasm serverlessly",
+]);
+console.log("Embeddings count:", result.embeddings.length);
+```
+  </Tab>
+</Tabs>
+
+<Tip>
+Embeddings are deterministic for a given model and input. Cache results in the Spin key-value store to avoid redundant inference calls.
+</Tip>

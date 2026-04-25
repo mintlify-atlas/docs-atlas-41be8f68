@@ -1,0 +1,233 @@
+---
+title: "Spin Rust SDK: building Wasm components"
+description: "Use the spin-sdk Rust crate to build WebAssembly serverless components with HTTP handlers, key-value storage, outbound HTTP, and more."
+---
+
+The Rust SDK is the most fully featured Spin SDK. Every Spin capability — HTTP and Redis triggers, outbound HTTP, key-value storage, SQLite, MySQL, PostgreSQL, outbound Redis, Serverless AI, and custom trigger authoring — is available from Rust. The `spin-sdk` crate is published on [crates.io](https://crates.io/crates/spin-sdk) and integrates with the standard Rust toolchain via the `wasm32-wasip2` compilation target.
+
+## Installation
+
+<Steps>
+  <Step title="Add the WebAssembly target">
+    Spin compiles Rust components to the `wasm32-wasip2` target. Add it once with `rustup`:
+
+    ```bash
+    rustup target add wasm32-wasip2
+    ```
+  </Step>
+  <Step title="Create a new Spin application">
+    Use the `http-rust` template to scaffold a project with the correct `Cargo.toml`, `spin.toml`, and source layout:
+
+    ```bash
+    spin new --accept-defaults -t http-rust hello-rust
+    ```
+  </Step>
+  <Step title="Add spin-sdk to Cargo.toml">
+    The template generates a `Cargo.toml` with `spin-sdk` pre-configured. For existing projects, add it manually:
+
+    ```toml Cargo.toml
+    [package]
+    name = "my-component"
+    version = "0.1.0"
+    edition = "2024"
+
+    [lib]
+    crate-type = ["cdylib"]
+
+    [dependencies]
+    anyhow = "1"
+    spin-sdk = "6.0.0"
+    ```
+
+    <Note>
+      The `crate-type = ["cdylib"]` setting is required. Spin loads your component as a dynamic library that is compiled to WebAssembly.
+    </Note>
+  </Step>
+  <Step title="Build and run">
+    ```bash
+    spin build
+    spin up
+    ```
+
+    Spin compiles to `target/wasm32-wasip2/release/<name>.wasm` and serves on `http://127.0.0.1:3000`.
+  </Step>
+</Steps>
+
+## HTTP handler
+
+The `#[http_service]` attribute macro marks an async function as the HTTP entry point for a component. The function receives a `Request` and returns any type that implements `IntoResponse`.
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response};
+use spin_sdk::http_service;
+
+/// A simple Spin HTTP component.
+#[http_service]
+async fn handle_request(req: Request) -> anyhow::Result<impl IntoResponse> {
+    println!("Handling request to {:?}", req.headers().get("spin-full-url"));
+    Ok(Response::builder()
+        .status(200)
+        .header("content-type", "text/plain")
+        .body("Hello World!".to_string()))
+}
+```
+
+The matching `spin.toml` route wires the trigger to the component:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "hello-rust"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "hello-rust"
+
+[component.hello-rust]
+source = "target/wasm32-wasip2/release/hello_rust.wasm"
+allowed_outbound_hosts = []
+
+[component.hello-rust.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+## Redis subscriber
+
+Use the `#[redis_subscriber]` macro to handle messages published to a Redis channel.
+
+```rust src/lib.rs
+use anyhow::Result;
+use spin_sdk::redis_subscriber;
+use std::str::from_utf8;
+
+/// A simple Spin Redis component.
+#[redis_subscriber]
+async fn on_message(message: Vec<u8>) -> Result<()> {
+    println!("{}", from_utf8(&message)?);
+    Ok(())
+}
+```
+
+Configure the Redis address and channel subscription in `spin.toml`:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "hello-redis"
+version = "0.1.0"
+
+[application.trigger.redis]
+address = "redis://127.0.0.1:6379"
+
+[[trigger.redis]]
+channel = "messages"
+component = "hello-redis"
+
+[component.hello-redis]
+source = "target/wasm32-wasip2/release/hello_redis.wasm"
+allowed_outbound_hosts = []
+
+[component.hello-redis.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+## Outbound HTTP
+
+Spin intercepts outbound HTTP calls and enforces an allow-list declared in `spin.toml`. Use `spin_sdk::http::send()` to make requests:
+
+```rust src/lib.rs
+use spin_sdk::http::{send, IntoResponse, Method, Request, Response, StatusCode};
+use spin_sdk::http_service;
+
+#[http_service]
+async fn handle_request(_req: Request) -> anyhow::Result<impl IntoResponse> {
+    let upstream: Response = send(
+        Request::builder()
+            .method(Method::Get)
+            .uri("https://httpbin.org/get")
+            .build(),
+    )
+    .await?;
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(upstream.into_body())
+        .build())
+}
+```
+
+Add the host to `allowed_outbound_hosts` in `spin.toml`:
+
+```toml spin.toml
+[component.my-component]
+source = "target/wasm32-wasip2/release/my_component.wasm"
+allowed_outbound_hosts = ["https://httpbin.org"]
+```
+
+<Warning>
+  Requests to hosts not listed in `allowed_outbound_hosts` are denied at runtime. Use `["https://*:*"]` to permit all HTTPS traffic during development only.
+</Warning>
+
+## Key-value store
+
+Spin provides a built-in key-value store accessible via `spin_sdk::key_value`. Open a store by name, then call `get`, `set`, and `delete`:
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response, StatusCode};
+use spin_sdk::http_service;
+use spin_sdk::key_value::Store;
+
+#[http_service]
+async fn handle_request(req: Request) -> anyhow::Result<impl IntoResponse> {
+    let store = Store::open_default()?;
+
+    // Write a value.
+    store.set("visitor-count", b"1")?;
+
+    // Read it back.
+    let count = store.get("visitor-count")?
+        .unwrap_or_default();
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/plain")
+        .body(String::from_utf8_lossy(&count).to_string())
+        .build())
+}
+```
+
+Grant access to the store in `spin.toml`:
+
+```toml spin.toml
+[component.my-component]
+source = "target/wasm32-wasip2/release/my_component.wasm"
+key_value_stores = ["default"]
+```
+
+## Feature support
+
+All Spin SDK features are available in Rust. The table below reflects the [official language support overview](https://spinframework.dev/language-support-overview).
+
+| Feature | Supported |
+|---|---|
+| HTTP trigger | Yes |
+| Redis trigger | Yes |
+| Outbound HTTP | Yes |
+| Configuration variables | Yes |
+| Key-value storage | Yes |
+| SQLite storage | Yes |
+| MySQL | Yes |
+| PostgreSQL | Yes |
+| Outbound Redis | Yes |
+| Serverless AI | Yes |
+| Authoring custom triggers | Yes |
+
+<Tip>
+  Rust is the only SDK that supports authoring custom Spin triggers. If you need to extend the Spin runtime itself, Rust is the required language.
+</Tip>

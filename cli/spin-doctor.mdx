@@ -1,0 +1,63 @@
+---
+title: "spin doctor — diagnose and fix Spin app problems"
+description: "spin doctor analyzes your Spin application for common problems and offers to fix them automatically. Run it when spin build or spin up fails unexpectedly."
+---
+
+`spin doctor` inspects your Spin application for common problems — misconfigured manifests, missing build targets, outdated component sources, and similar issues — and interactively offers to fix them. It is especially useful after upgrading Spin or when a new project fails to build for the first time.
+
+## Usage
+
+```bash
+spin doctor [OPTIONS]
+```
+
+## Flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--from <FILE>` | `-f` | Path to `spin.toml` to check (default: `spin.toml` in current directory) |
+
+## Examples
+
+Run the doctor on the current application:
+
+```bash
+spin doctor
+```
+
+Check a specific manifest:
+
+```bash
+spin doctor -f path/to/spin.toml
+```
+
+## What it checks
+
+`spin doctor` runs a series of diagnostic checks against your application. When it finds a problem, it describes the issue and — where possible — offers an automated treatment:
+
+```
+📟 The Spin Doctor is in.
+🩺 Checking spin.toml...
+
+⚠  Diagnosis: Component 'hello-rust' is missing the wasm32-wasip2 Rust target.
+🩹 The Spin Doctor can help! Would you like to
+  > Install the wasm32-wasip2 target via rustup
+    Do nothing
+```
+
+Select the suggested fix and press Enter. The doctor applies the treatment and continues checking.
+
+Common problems the doctor diagnoses include:
+
+- Missing Rust WebAssembly targets (`wasm32-wasip2`)
+- Component source paths that no longer exist
+- Manifest fields that need updating between Spin versions
+- Missing build toolchain dependencies
+
+<Note>
+`spin doctor` must be run in the same directory as your `spin.toml`, or you must supply the `--from` flag pointing to the manifest. It will error if it cannot find a manifest in the current directory.
+</Note>
+
+<Tip>
+Run `spin doctor` as a first step whenever `spin build` or `spin up` produces an unexpected error. It can often identify and fix the issue automatically.
+</Tip>

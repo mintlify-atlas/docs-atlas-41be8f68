@@ -1,0 +1,103 @@
+---
+title: "Install Spin"
+description: "Install the Spin CLI on Linux, macOS, or Windows WSL. Use the one-line install script, or build from source with Cargo. Includes language-specific requirements."
+keywords: ["spin", "install", "setup", "cli", "webassembly", "wasm"]
+---
+
+Spin is distributed as a single self-contained binary. The fastest way to install it is with the official install script, which downloads the latest release and places the binary in the current directory. The current release is **4.1.0-pre0**.
+
+## System requirements
+
+| Platform | Support |
+|---|---|
+| Linux (x86_64, aarch64) | Supported |
+| macOS (Intel and Apple Silicon) | Supported |
+| Windows via WSL2 | Supported |
+
+<Warning>
+  Native Windows is not supported. Use [Windows Subsystem for Linux (WSL2)](https://learn.microsoft.com/en-us/windows/wsl/install) on Windows.
+</Warning>
+
+## Install with the install script
+
+Run the following two commands to download the Spin binary and move it to a directory on your `PATH`:
+
+```bash
+curl -fsSL https://spinframework.dev/downloads/install.sh | bash
+sudo mv ./spin /usr/local/bin/spin
+```
+
+The script detects your operating system and architecture and downloads the correct binary for your machine.
+
+## Verify the installation
+
+After installing, confirm that Spin is available:
+
+```bash
+spin --version
+```
+
+You should see output similar to:
+
+```
+spin 4.1.0-pre0
+```
+
+## Build from source
+
+If you prefer to build Spin from source, clone the repository and use Cargo:
+
+```bash
+git clone https://github.com/spinframework/spin
+cd spin
+cargo build --release
+sudo mv target/release/spin /usr/local/bin/spin
+```
+
+<Note>
+  Building from source requires Rust 1.86 or later. Install Rust from [rustup.rs](https://rustup.rs).
+</Note>
+
+## Language-specific requirements
+
+Depending on the language you use to write Spin components, you need additional tools.
+
+### Rust
+
+Add the `wasm32-wasip2` target to your Rust toolchain. This is required to compile Rust components to WebAssembly:
+
+```bash
+rustup target add wasm32-wasip2
+```
+
+### JavaScript and TypeScript
+
+The JavaScript and TypeScript SDK requires Node.js. Install it from [nodejs.org](https://nodejs.org) or using a version manager such as [nvm](https://github.com/nvm-sh/nvm).
+
+The JS/TS template scaffolds a project that uses `npm` for dependency management and includes a build script that produces a Wasm component.
+
+### Python
+
+The Python SDK requires Python 3.10 or later and `componentize-py`. Install `componentize-py` with pip:
+
+```bash
+pip install componentize-py
+```
+
+### Go
+
+The Go SDK uses TinyGo to compile to WebAssembly. Install TinyGo from [tinygo.org](https://tinygo.org/getting-started/install/).
+
+## Install templates
+
+Spin uses templates to scaffold new applications. Install the default template set after installing Spin:
+
+```bash
+spin templates install --git https://github.com/spinframework/spin --upgrade
+```
+
+Once installed, run `spin templates list` to see all available templates.
+
+<Tip>
+  After installing Spin and its templates, follow the [quickstart](/quickstart) to build and run your first application.
+</Tip>

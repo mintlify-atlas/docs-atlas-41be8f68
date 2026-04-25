@@ -1,0 +1,257 @@
+---
+title: "Variables and configuration in Spin apps"
+description: "Declare application variables in spin.toml, reference them in component config, and supply values at runtime via environment variables or secret providers."
+keywords: ["spin variables", "runtime config", "application variables", "vault", "azure key vault", "dynamic configuration", "SPIN_VARIABLE"]
+---
+
+Spin's variable system lets you separate configuration from code. You declare named variables in your `spin.toml` manifest, reference them in component configuration using `{{ var_name }}` syntax, and supply actual values at runtime without modifying the manifest. This enables the same application binary to run in development, staging, and production with different secrets or endpoints.
+
+## Declaring variables
+
+Add a `[variables]` table to your `spin.toml`. Each key is the variable name (lowercase snake_case); the value is a descriptor with optional `default`, `required`, `description`, and `secret` fields:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "my-app"
+version = "0.1.0"
+
+[variables]
+api_host = { default = "api.example.com", description = "Upstream API hostname" }
+api_key  = { required = true, secret = true, description = "API authentication key" }
+log_level = { default = "info" }
+```
+
+<ParamField path="variables.NAME.default" type="string">
+  Value used when no runtime value is supplied. Either `default` or `required = true` must be set.
+</ParamField>
+
+<ParamField path="variables.NAME.required" type="boolean" default="false">
+  When `true`, Spin will refuse to start if no value is provided at runtime. Cannot be combined with `default`.
+</ParamField>
+
+<ParamField path="variables.NAME.description" type="string">
+  Human-readable explanation of the variable. Shown by tooling and in error messages.
+</ParamField>
+
+<ParamField path="variables.NAME.secret" type="boolean" default="false">
+  When `true`, Spin treats the value as sensitive and avoids logging it.
+</ParamField>
+
+## Using variables in component configuration
+
+Application variables are not available directly to components. Instead, you map them into a component's `variables` table using the `{{ var_name }}` template syntax:
+
+```toml spin.toml
+[component.my-app.variables]
+# Expose a constructed URL to the component
+upstream_url = "https://{{ api_host }}/v1"
+# Pass the secret through directly
+auth_token   = "{{ api_key }}"
+```
+
+The component then reads these values through the Spin variables API (see below). The `{{ }}` expressions are resolved at runtime before the component is invoked, so values from external providers (Vault, Azure Key Vault, etc.) are available.
+
+You can also embed variables in `allowed_outbound_hosts`:
+
+```toml
+allowed_outbound_hosts = ["https://{{ api_host }}"]
+```
+
+## Reading variables from code
+
+<Tabs>
+  <Tab title="Rust">
+
+```rust src/lib.rs
+use spin_sdk::http::{IntoResponse, Request, Response};
+use spin_sdk::http_service;
+use spin_sdk::variables;
+
+#[http_service]
+async fn handle(req: Request) -> anyhow::Result<impl IntoResponse> {
+    // Read a variable declared in [component.NAME.variables]
+    let token = variables::get("auth_token")?;
+
+    Ok(Response::builder()
+        .status(200)
+        .body(format!("Token length: {}", token.len()))
+        .build())
+}
+```
+
+  </Tab>
+  <Tab title="Go">
+
+```go main.go
+package main
+
+import (
+    "fmt"
+    "net/http"
+
+    spinhttp "github.com/fermyon/spin/sdk/go/v2/http"
+    "github.com/fermyon/spin/sdk/go/v2/variables"
+)
+
+func init() {
+    spinhttp.Handle(func(w http.ResponseWriter, r *http.Request) {
+        token, err := variables.Get("auth_token")
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        fmt.Fprintf(w, "Token length: %d", len(token))
+    })
+}
+
+func main() {}
+```
+
+  </Tab>
+</Tabs>
+
+## Supplying values at runtime
+
+### Environment variables
+
+Set `SPIN_VARIABLE_<NAME>` (uppercase) before running `spin up`:
+
+```bash
+export SPIN_VARIABLE_API_KEY="sk-live-abc123"
+export SPIN_VARIABLE_API_HOST="api.production.example.com"
+spin up
+```
+
+This is the simplest approach for local development and CI/CD pipelines.
+
+### Runtime config file
+
+For more complex setups—multiple providers, Vault, or Azure Key Vault—create a `runtime-config.toml` and pass it with `--runtime-config-file`:
+
+```bash
+spin up --runtime-config-file runtime-config.toml
+```
+
+The runtime config file supports multiple `[[config_provider]]` entries. Spin queries them in order and uses the first value it finds.
+
+## Variable providers
+
+### Static values in runtime config
+
+Supply a fixed map of values without external dependencies:
+
+```toml runtime-config.toml
+[[config_provider]]
+type = "static"
+
+[config_provider.values]
+api_key   = "sk-dev-abc123"
+api_host  = "api.dev.example.com"
+log_level = "debug"
+```
+
+### HashiCorp Vault
+
+The `vault` provider reads from Vault's KV secrets engine. This is used in the `examples/vault-variable-test` example in the Spin repository:
+
+```toml runtime-config.toml
+[[config_provider]]
+type = "vault"
+url   = "http://127.0.0.1:8200"
+token = "root"
+mount = "secret"
+```
+
+Variable names in `spin.toml` are looked up as keys under the configured Vault mount path.
+
+### Azure Key Vault
+
+The `azure_key_vault` provider fetches secrets from an Azure Key Vault instance using a service principal or managed identity:
+
+```toml runtime-config.toml
+[[config_provider]]
+type          = "azure_key_vault"
+vault_url     = "https://my-vault.vault.azure.net"
+client_id     = "00000000-0000-0000-0000-000000000000"
+client_secret = "my-client-secret"
+tenant_id     = "00000000-0000-0000-0000-000000000000"
+authority_host = "AzurePublicCloud"
+```
+
+### Environment variables provider
+
+Explicitly configure the environment variable provider to control the prefix:
+
+```toml runtime-config.toml
+[[config_provider]]
+type = "env"
+prefix = "MY_APP_"
+```
+
+With this config, `spin.toml` variable `api_key` maps to the environment variable `MY_APP_API_KEY`.
+
+## Complete example
+
+The `examples/vault-variable-test` in the Spin repository demonstrates the full pattern:
+
+```toml spin.toml
+spin_manifest_version = 2
+
+[application]
+name = "vault-variable-test"
+version = "0.1.0"
+authors = ["Spin Framework Contributors"]
+description = "Vault Application Variable Provider Example"
+
+[[trigger.http]]
+route = "/..."
+component = "vault-variable-test"
+
+[variables]
+secret = { required = true }
+
+[component.vault-variable-test]
+source = "target/wasm32-wasip2/release/vault_variable_test.wasm"
+allowed_outbound_hosts = []
+
+[component.vault-variable-test.variables]
+token = "{{ secret }}"
+
+[component.vault-variable-test.build]
+command = "cargo build --target wasm32-wasip2 --release"
+watch = ["src/**/*.rs", "Cargo.toml"]
+```
+
+```toml runtime-config.toml
+[[config_provider]]
+type  = "vault"
+url   = "http://127.0.0.1:8200"
+token = "root"
+mount = "secret"
+```
+
+```bash
+spin up --runtime-config-file runtime-config.toml
+```
+
+<Tip>
+  You can stack multiple providers in `runtime-config.toml`. Spin resolves each variable by querying providers from top to bottom and using the first successful result. This lets you override specific values with environment variables while pulling the rest from Vault.
+</Tip>
+
+## Provider resolution order
+
+When multiple providers are declared, Spin queries them in declaration order:
+
+<Steps>
+  <Step title="First provider">
+    Spin queries the first `[[config_provider]]` entry. If it returns a value, that value is used.
+  </Step>
+  <Step title="Next provider">
+    If the first provider has no value for a variable (or returns an error), Spin moves to the next entry.
+  </Step>
+  <Step title="Default fallback">
+    If no provider supplies a value, Spin uses the `default` from the `[variables]` declaration. If there is no default and `required = true`, Spin refuses to start.
+  </Step>
+</Steps>

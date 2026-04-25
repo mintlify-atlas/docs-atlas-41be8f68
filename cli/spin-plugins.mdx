@@ -1,0 +1,128 @@
+---
+title: "spin plugins — install and manage Spin plugins"
+description: "spin plugins installs, lists, upgrades, and removes Spin plugins. Install from the official catalog by name, from a remote URL, or from a local manifest file."
+---
+
+`spin plugins` manages the Spin plugin ecosystem. Plugins are standalone binaries that extend the `spin` CLI with new subcommands — for example, `spin cloud` for deploying to Fermyon Cloud. The official plugin catalog is hosted at [github.com/fermyon/spin-plugins](https://github.com/fermyon/spin-plugins).
+
+## Subcommands
+
+### spin plugins update
+
+Fetch the latest plugin catalog from the upstream repository. Run this before installing or searching for plugins to ensure you have up-to-date listings.
+
+```bash
+spin plugins update
+```
+
+### spin plugins install
+
+Install a plugin by name from the catalog, a remote URL, or a local manifest file.
+
+```bash
+# Install from catalog
+spin plugins install cloud
+
+# Install a specific version
+spin plugins install cloud --version 0.10.0
+
+# Install from a remote manifest URL
+spin plugins install --url https://example.com/my-plugin.json
+
+# Install from a local manifest file
+spin plugins install --file ./my-plugin.json
+
+# Skip the confirmation prompt
+spin plugins install cloud --yes
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|---|---|---|
+| `--url <URL>` | `-u` | Remote URL of the plugin manifest |
+| `--file <FILE>` | `-f` | Local path to a plugin manifest |
+| `--version <VERSION>` | `-v` | Specific version to install (catalog installs only) |
+| `--yes` | `-y` | Auto-confirm installation without prompting |
+| `--override-compatibility-check` | | Install even if the plugin reports incompatibility with the current Spin version |
+
+### spin plugins list
+
+List all available plugins from the catalog, or only the ones currently installed.
+
+```bash
+# All available plugins
+spin plugins list
+
+# Only installed plugins
+spin plugins list --installed
+```
+
+### spin plugins search
+
+Search for plugins by name substring:
+
+```bash
+spin plugins search cloud
+```
+
+### spin plugins upgrade
+
+Upgrade one plugin or all installed plugins:
+
+```bash
+# Upgrade a specific plugin
+spin plugins upgrade cloud
+
+# Upgrade all installed plugins
+spin plugins upgrade --all
+```
+
+### spin plugins uninstall
+
+Remove an installed plugin:
+
+```bash
+spin plugins uninstall cloud
+# Alias: spin plugins rm cloud
+```
+
+### spin plugins show
+
+Print information about a plugin (version, description, compatibility):
+
+```bash
+spin plugins show cloud
+```
+
+## Plugin manifest format
+
+A plugin is distributed as a versioned JSON manifest pointing to platform-specific binary tarballs:
+
+```json my-plugin.json
+{
+  "name": "my-plugin",
+  "description": "Does something useful",
+  "version": "0.1.0",
+  "spinCompatibility": ">=2.0",
+  "license": "Apache-2.0",
+  "packages": [
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "url": "https://example.com/releases/my-plugin-linux-amd64.tar.gz",
+      "sha256": "abc123..."
+    },
+    {
+      "os": "macos",
+      "arch": "aarch64",
+      "url": "https://example.com/releases/my-plugin-macos-aarch64.tar.gz",
+      "sha256": "def456..."
+    }
+  ]
+}
+```
+
+<Note>
+Plugin binaries are installed to `$HOME/.spin/plugins/` and invoked automatically when you run `spin <plugin-name>`.
+</Note>

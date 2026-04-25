@@ -1,0 +1,89 @@
+---
+title: "spin templates — install and manage app templates"
+description: "spin templates installs Spin application templates from Git repositories or local paths, lists available templates, and removes ones you no longer need."
+---
+
+`spin templates` manages the collection of application templates available to `spin new` and `spin add`. Templates are installed from Git repositories or local directories, and Spin ships with a default set of official templates for Rust, Go, JavaScript, Python, and other languages.
+
+## Subcommands
+
+### spin templates install
+
+Install templates from a Git repository or a local path.
+
+```bash
+# Install from the official Spin templates repository
+spin templates install --git https://github.com/spinframework/spin
+
+# Install from a specific branch or tag
+spin templates install --git https://github.com/spinframework/spin --branch v3.0
+
+# Install from a local directory
+spin templates install --dir ./my-custom-templates
+
+# Upgrade installed templates to the latest version
+spin templates install --git https://github.com/spinframework/spin --update
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|---|---|---|
+| `--git <URL>` | | Git repository containing templates |
+| `--branch <BRANCH>` | | Git branch, tag, or commit to install from |
+| `--dir <PATH>` | | Local directory containing templates |
+| `--update` | | Overwrite existing templates with the latest from the source |
+| `--yes` | `-y` | Auto-confirm installation |
+
+### spin templates list
+
+List all installed templates with their IDs, descriptions, and supported languages.
+
+```bash
+spin templates list
+```
+
+Example output:
+
+```
++-----------------------------------------------------------------------------+
+| Name                Description                                   Language  |
++=============================================================================+
+| http-c              Build your application using C and the Zig   C         |
+|                     toolchain                                                |
+| http-empty          A Spin application with no components         None      |
+| http-go             Build your application using TinyGo           Go        |
+| http-grain          Build your application using Grain            Grain     |
+| http-php            Build your application using PHP              PHP       |
+| http-python         Build your application using Python           Python    |
+| http-rust           Build your application using Rust             Rust      |
+| http-zig            Build your application using Zig              Zig       |
+| redis-go            Build your application using TinyGo           Go        |
+| redis-rust          Build your application using Rust             Rust      |
+| static-fileserver   Serve static files from an asset directory    None      |
++-----------------------------------------------------------------------------+
+```
+
+### spin templates uninstall
+
+Remove an installed template by name:
+
+```bash
+spin templates uninstall http-rust
+```
+
+## Installing language SDK templates
+
+Each official language SDK ships additional templates. Install them from their respective repositories:
+
+```bash
+# JavaScript/TypeScript templates
+spin templates install --git https://github.com/spinframework/spin-js-sdk
+
+# Python templates
+spin templates install --git https://github.com/spinframework/spin-python-sdk
+```
+
+<Tip>
+After installing new templates, run `spin templates list` to confirm they are available before using them with `spin new`.
+</Tip>
